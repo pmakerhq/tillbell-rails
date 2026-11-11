@@ -143,6 +143,8 @@ RSpec.describe Pay::GooglePlay::Subscription do
       end
 
       it "emits plan_changed when the product of a purchase changes in place" do
+        # Both syncs must report the same expiry, or the change also reads as a renewal.
+        freeze_time
         sync(product_id: "premium")
 
         expect(names(tillbell_events { sync(product_id: "basic") })).to eq(%i[subscription_updated plan_changed])
