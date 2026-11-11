@@ -1,0 +1,13 @@
+# Weekly pull requests that keep the gem's dependencies and the GitHub Actions
+# used by the workflows up to date. Security updates are handled by GitHub
+# itself, independently of this file.
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
