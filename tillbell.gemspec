@@ -22,4 +22,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "pay", ">= 12.0"
   spec.add_dependency "google-apis-androidpublisher_v3", ">= 0.100"
   spec.add_dependency "googleauth", ">= 1.11"
+  spec.add_dependency "jwt", ">= 2.2", "< 4"
 end

@@ -6,6 +6,28 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
+### Added
+
+- App Store subscriptions, for the iOS app of [tillbell-ios](https://github.com/pmakerhq/tillbell-ios):
+  `Pay::AppStore::Customer` and `Pay::AppStore::Subscription`, set up with
+  `config.apple.bundle_id`. `POST /tillbell/purchases` accepts the signed StoreKit 2
+  transaction the iOS app sends as its purchase token, verifies Apple's signature without
+  calling Apple and checks its `appAccountToken`, the same account id as Google Play.
+- `POST /tillbell/notifications/app_store` receives App Store Server Notifications (version 2),
+  verified and processed through Pay like Google Play notifications: renewals, billing retries,
+  grace periods, expiries and refunds keep the subscription current.
+- `app_store?` and the `app_store` scope on Pay customers and subscriptions. `grants_access?`
+  gives no access to an App Store subscription in billing retry after the grace period.
+
+### Changed
+
+- Bridge contract: a `pending` purchase reply may come without `purchaseToken`, for an App Store
+  purchase waiting for approval (Ask to Buy). The paywall controller then shows the pending
+  message. Copy the new `tillbell_controller.js` from the generator template into your app.
+- The bridge contract documents how tillbell-ios maps it to StoreKit 2.
+
 ## [0.5.1] - 2026-11-11
 
 ### Changed

@@ -3,8 +3,9 @@
 This document specifies the messages exchanged between the Tillbell paywall (a Rails page
 with the `tillbell` Stimulus controller) and the native `tillbell` bridge component of a
 Hotwire Native app. It is the specification of
-[tillbell-android](https://github.com/pmakerhq/tillbell-android) and of the future
-tillbell-ios. You do not need to read the Ruby code to implement it.
+[tillbell-android](https://github.com/pmakerhq/tillbell-android) and of
+[tillbell-ios](https://github.com/pmakerhq/tillbell-ios). It was written for Google Play first;
+[On the App Store](#on-the-app-store) says how its fields map to StoreKit 2. You do not need to read the Ruby code to implement it.
 
 Every message is described by a JSON Schema (draft 2020-12) in [`contract/`](../contract), with
 examples in [`contract/examples/`](../contract/examples). The Rails test suite validates every
@@ -106,7 +107,7 @@ Reply ([schema](../contract/purchase.reply.json)):
 | `result` | When | Fields |
 |---|---|---|
 | `purchased` | `PurchasesUpdatedListener` returns `OK` with a purchase in state `PURCHASED` | `productId`, `purchaseToken` |
-| `pending` | `OK` with a purchase in state `PENDING` (e.g. cash payment) | `productId`, `purchaseToken` |
+| `pending` | `OK` with a purchase in state `PENDING` (e.g. cash payment) | `productId`, `purchaseToken` (always on Google Play; none for an App Store purchase waiting for approval) |
 | `canceled` | `USER_CANCELED` | none |
 | `already_owned` | `ITEM_ALREADY_OWNED` | none |
 | `unavailable` | `BILLING_UNAVAILABLE`, `SERVICE_UNAVAILABLE`, `FEATURE_NOT_SUPPORTED` | `message` (optional) |
@@ -128,7 +129,9 @@ reply once the result arrives, or reply `error`. A purchase must never be lost s
 
 What the page does next:
 
-- `purchased` and `pending`: it posts the token to `POST /tillbell/purchases` (see below).
+- `purchased` and `pending`: it posts the token to `POST /tillbell/purchases` (see below). A
+  `pending` reply without a token shows the pending message: the server records the purchase
+  from the store's notification once it completes.
 - `already_owned`: it sends `restore`.
 - `canceled`: it re-enables the buttons.
 - `unavailable` and `error`: it shows a message.
@@ -161,6 +164,23 @@ Request ([schema](../contract/manage.request.json)):
 Open `https://play.google.com/store/account/subscriptions?sku=<productId>&package=<packageName>`,
 or the page without parameters when `productId` is `null`.
 
+## On the App Store
+
+tillbell-ios implements the same messages with StoreKit 2:
+
+- `productId` is the App Store product identifier and `basePlanId` must be `null`: each
+  subscription duration is its own product. A plan with a base plan is left out of `products`,
+  and `purchase` replies `error`.
+- `formattedPrice` is `Product.displayPrice`.
+- `obfuscatedAccountId` must be a UUID: it is passed unchanged as the `appAccountToken`.
+- `purchaseToken` is the signed transaction (`VerificationResult.jwsRepresentation`), which the
+  server verifies without calling Apple.
+- A plan change sends `oldPurchaseToken` and `replacementMode` as on Google Play; the App Store
+  ignores them and replaces the subscription of the same subscription group itself.
+- A purchase waiting for approval (Ask to Buy) replies `pending` without `purchaseToken`.
+- `restore` lists `Transaction.currentEntitlements`, without family-shared ones.
+- `manage` opens the App Store subscription management sheet.
+
 ## After the purchase: page to server
 
 This part does not involve native code, and is documented for completeness. The page posts
@@ -177,6 +197,6 @@ X-CSRF-Token: <token>
 | HTTP | `status` | Meaning | Page |
 |---|---|---|---|
 | 200 | `verified` | Recorded. `active` tells whether it grants access (a pending purchase does not). | Visits `success_url` when `active`, else shows the pending message. |
-| 202 | `verifying` | Google could not be reached; verified in the background. | Shows the "checking" message. |
+| 202 | `verifying` | Google could not be reached; verified in the background (Google Play only). | Shows the "checking" message. |
 | 403 | `rejected` | The purchase belongs to another account. | Shows the rejected message. |
-| 422 | `invalid` | Google does not know this token. | Shows the error message. |
+| 422 | `invalid` | Google does not know this token, or Apple did not sign this transaction for this app. | Shows the error message. |

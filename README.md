@@ -5,7 +5,7 @@
 
 **Self-hosted in-app subscriptions for Rails + Hotwire Native apps, built on [Pay](https://github.com/pay-rails/pay).**
 
-Your Android app sells subscriptions through Google Play. Your Rails app verifies them, acknowledges them and keeps them in sync. No third-party service sits between the store and your server, and no extra table is added: Google Play subscriptions are regular `Pay::Subscription` records, right next to your Stripe ones.
+Your Android app sells subscriptions through Google Play, your iOS app through the App Store. Your Rails app verifies them, acknowledges them and keeps them in sync. No third-party service sits between the store and your server, and no extra table is added: store subscriptions are regular `Pay::Subscription` records, right next to your Stripe ones.
 
 ```ruby
 user.pay_subscriptions.active            # Stripe and Google Play together
@@ -14,7 +14,7 @@ subscription.active?                     # same rules as for Stripe
 ```
 
 > [!NOTE]
-> **Status: v0.1, not released on RubyGems yet.** Google Play only for now. The App Store (StoreKit 2) is planned.
+> **Status: v0.6.** Google Play is verified with real purchases. App Store support (StoreKit 2, with [tillbell-ios](https://github.com/pmakerhq/tillbell-ios)) is new: it is unit tested but not yet verified with real purchases.
 
 ## Table of contents
 
@@ -29,6 +29,7 @@ subscription.active?                     # same rules as for Stripe
 - [Subscriptions and statuses](#subscriptions-and-statuses)
 - [Events](#events)
 - [Google Play setup](#google-play-setup)
+- [App Store setup](#app-store-setup)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
 - [The Tillbell family](#the-tillbell-family)
@@ -128,6 +129,7 @@ The page and the native app talk through a [Hotwire Native bridge component](htt
 | Pay | 12+, installed and migrated |
 | Active Job | A queue backend in production (Solid Queue, Sidekiq, ...) |
 | Android app | Hotwire Native with [tillbell-android](https://github.com/pmakerhq/tillbell-android) |
+| iOS app (optional) | Hotwire Native with [tillbell-ios](https://github.com/pmakerhq/tillbell-ios) |
 
 ## Installation
 
@@ -593,10 +595,46 @@ The Play Console's success message only means the message reached **your topic**
 | The buy button stays disabled | The app does not register the `tillbell` component, or this is a browser | Use the app with [tillbell-android](https://github.com/pmakerhq/tillbell-android) |
 | A purchase works, then Google refunds it after three days | Your server did not acknowledge it: the purchase endpoint failed | Look at your logs for the purchase request; run `bin/rails tillbell:check` |
 
+## App Store setup
+
+The iOS app ([tillbell-ios](https://github.com/pmakerhq/tillbell-ios)) talks to the same paywall with the same messages. Nothing is needed from Apple to verify a purchase: the iOS app sends the transaction signed by Apple, and Tillbell checks the signature against Apple Root CA - G3, which ships with the gem.
+
+1. **Set the bundle id** of the iOS app in `config/initializers/tillbell.rb`. Transactions and notifications signed for another app are refused.
+
+   ```ruby
+   config.apple.bundle_id = "com.example.app"
+   ```
+
+2. **Create the subscriptions** in App Store Connect (*Monetization* › *Subscriptions*), in one subscription group, ordered from the highest level to the lowest: the App Store decides from the levels whether a plan change is an upgrade (now) or a downgrade (at the next renewal).
+
+3. **Point the notifications to your app.** App Store Connect › your app › *App Information* › *App Store Server Notifications*: set both the production and the sandbox URL to `https://<your host>/tillbell/notifications/app_store`, version 2. Renewals, billing retries, expiries, refunds and Ask to Buy approvals arrive there; without them, a subscription is never renewed in your database.
+
+4. **Name App Store products in the paywall on iOS.** The App Store has no base plans: each duration is its own product. Render the plans of the platform the request comes from, with `base_plan_id` left out on iOS:
+
+   ```erb
+   <% if request.user_agent.to_s.include?("iOS") %>
+     <%= paywall.plan_option(product_id: "premium.monthly") { paywall.price } %>
+   <% else %>
+     <%= paywall.plan_option(product_id: "premium", base_plan_id: "monthly") { paywall.price } %>
+   <% end %>
+   ```
+
+   A plan change needs nothing more on iOS: the App Store replaces the subscription of the same group by itself.
+
+5. **Test** in the simulator with a StoreKit configuration file, then on a device with a sandbox account (*Settings* › *Developer* › *Sandbox Apple Account*). Transactions signed by Xcode's StoreKit configuration are not signed by Apple: the purchase endpoint answers `invalid` for them, as it should.
+
+How App Store subscriptions differ:
+
+- `processor_id` is the `originalTransactionId`, which stays the same across renewals and plan changes.
+- The Pay customer (`Pay::AppStore::Customer`) shares its `processor_id` with the owner's Google Play customer: the paywall sends one account id to both apps, passed to StoreKit as the `appAccountToken`.
+- Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
+- Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account.
+- An Ask to Buy purchase is answered `pending` without a token: the paywall shows its pending message, and the subscription is recorded from Apple's notification once a parent approves it.
+
 ## Security
 
 - The purchase endpoint inherits from your `ApplicationController`, so your authentication and CSRF protection apply. It never trusts an owner or account id sent by the client.
-- Every purchase is read back from Google, and the purchase's `obfuscatedAccountId` must match the signed-in owner's Google Play customer.
+- Every Google Play purchase is read back from Google, and its `obfuscatedAccountId` must match the signed-in owner's account id. Every App Store transaction and notification must be signed by Apple (a certificate chain to Apple Root CA - G3) for the configured bundle id, and a transaction's `appAccountToken` must match the owner's account id.
 - Notifications must carry an OIDC token signed by Google for the configured service account. Anything else gets a 401.
 - The account id sent to Google is a random UUID, never an e-mail or a database id.
 - Purchase tokens are never logged in full.
@@ -623,7 +661,7 @@ Problems on Google's side (credentials, permissions, notifications) have their o
 |---|---|
 | **tillbell-rails** (this repo) | Rails engine: Pay processor, purchase verification, notifications, paywall helper |
 | [tillbell-android](https://github.com/pmakerhq/tillbell-android) | Hotwire Native bridge component for Google Play Billing |
-| [tillbell-ios](https://github.com/pmakerhq/tillbell-ios) | Hotwire Native bridge component for StoreKit 2 (planned) |
+| [tillbell-ios](https://github.com/pmakerhq/tillbell-ios) | Hotwire Native bridge component for StoreKit 2 |
 
 ## Getting help
 
