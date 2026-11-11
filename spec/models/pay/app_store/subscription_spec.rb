@@ -51,6 +51,41 @@ RSpec.describe Pay::AppStore::Subscription do
     expect(downgrade).to have_attributes(deferred_product_id: "premium.monthly", plan_change_pending?: true)
   end
 
+  it "ignores a family-shared transaction, which is not the buyer's purchase" do
+    transaction = app_store_transaction(account_id: account_id).merge("inAppOwnershipType" => "FAMILY_SHARED")
+
+    expect(described_class.sync(transaction)).to be_nil
+    expect(described_class.count).to eq(0)
+  end
+
+  it "never lets stale renewal information undo a newer one" do
+    newer = app_store_renewal_info.merge("signedDate" => apple_time(Time.current))
+    stale = app_store_renewal_info(billing_retry: true).merge("signedDate" => apple_time(1.hour.ago))
+    sync(newer)
+    sync(stale, purchased_at: 1.day.ago)
+
+    expect(described_class.sole).to have_attributes(billing_retry: false, status: "active")
+  end
+
+  it "reports a payment failure once, not again on a repeated sync" do
+    sync
+    failing = app_store_renewal_info(billing_retry: true, grace_period_ends_at: 3.days.from_now)
+
+    first = tillbell_events { sync(failing) }
+    again = tillbell_events { sync(failing) }
+
+    expect(first.map(&:first)).to include(:payment_failed)
+    expect(again.map(&:first)).not_to include(:payment_failed)
+  end
+
+  it "finds its plan by App Store product id and tells sandbox purchases apart" do
+    Tillbell.plans = [ { name: :monthly, product_id: "premium.monthly" } ]
+
+    expect(sync).to have_attributes(plan: Tillbell.plan(:monthly), base_plan_id: nil, sandbox?: true)
+  ensure
+    Tillbell.plans = []
+  end
+
   it "never fails to delete an owner: only the customer can cancel in the App Store" do
     subscription = sync
 

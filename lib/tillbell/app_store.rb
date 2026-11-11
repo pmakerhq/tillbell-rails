@@ -78,17 +78,24 @@ module Tillbell
       # payload. Raises +Tillbell::Error+ unless Apple signed it for this app.
       def verify_notification!(signed_payload)
         notification = decode!(signed_payload)
-        raise Error, "The notification belongs to another app" unless notification.dig("data", "bundleId") == bundle_id
+        # Most notifications describe one transaction under "data"; a summary of a mass
+        # extension and an external purchase notification put the app under their own key.
+        app = %w[data summary externalPurchaseToken].filter_map { |key| notification.dig(key, "bundleId") }.first
+        raise Error, "The notification belongs to another app" unless app == bundle_id
 
         notification
       end
 
       # Handles a verified notification: re-reads the transaction and renewal information it
       # carries and updates the subscription. Notifications without a transaction (a test
-      # notification, a summary of a mass extension) change nothing.
+      # notification, a summary of a mass extension) and those about other in-app purchases of
+      # the app change nothing.
       def handle_notification(notification)
         data = notification["data"] || {}
         return if data["signedTransactionInfo"].blank?
+
+        transaction = decode!(data["signedTransactionInfo"])
+        return unless transaction["type"] == AUTO_RENEWABLE
 
         transaction = verify_transaction!(data["signedTransactionInfo"])
         renewal_info = data["signedRenewalInfo"].presence&.then { |jws| decode!(jws) }
@@ -117,7 +124,9 @@ module Tillbell
         payload, = JWT.decode(jws, leaf.public_key, true, algorithm: "ES256")
         verify_chain!(leaf, intermediate, root, at: signed_at(payload))
         payload
-      rescue JWT::DecodeError, OpenSSL::X509::CertificateError, ArgumentError, JSON::ParserError, TypeError => error
+      # NoMethodError: a header that is not a JSON object, or an x5c that does not hold strings,
+      # posted by anyone to the public notification endpoint.
+      rescue JWT::DecodeError, OpenSSL::X509::CertificateError, ArgumentError, JSON::ParserError, TypeError, NoMethodError => error
         raise Error, "Invalid App Store signature: #{error.message}"
       end
 

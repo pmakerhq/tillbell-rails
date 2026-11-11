@@ -11,10 +11,10 @@ module Pay
     # [object] The last signed transaction payload, for debugging.
     #
     # App Store details live in +data+: +environment+ ("Production" or "Sandbox"),
-    # +transaction_id+, +purchase_date_ms+, +auto_renewing+, +auto_renew_product_id+,
-    # +billing_retry+, +grace_period_ends_at+ and +revoked_at+.
+    # +transaction_id+, +purchase_date_ms+, +renewal_signed_ms+, +auto_renewing+,
+    # +auto_renew_product_id+, +billing_retry+, +grace_period_ends_at+ and +revoked_at+.
     class Subscription < Pay::Subscription
-      store_accessor :data, :environment, :transaction_id, :purchase_date_ms, :auto_renewing, :auto_renew_product_id,
+      store_accessor :data, :environment, :transaction_id, :purchase_date_ms, :renewal_signed_ms, :auto_renewing, :auto_renew_product_id,
         :billing_retry, :grace_period_ends_at, :revoked_at
 
       class << self
@@ -24,8 +24,11 @@ module Pay
         # and notifications can arrive in any order.
         #
         # Returns the subscription, or nil when the transaction was not made through Tillbell
-        # (no known +appAccountToken+).
+        # (no known +appAccountToken+) or was shared through Family Sharing: the family member's
+        # transaction is not the buyer's purchase, and the iOS app never reports it either.
         def sync(transaction, renewal_info = nil)
+          return if transaction["inAppOwnershipType"] == "FAMILY_SHARED"
+
           pay_customer = Pay::AppStore::Customer.for_account_id(transaction["appAccountToken"])
           if pay_customer.nil?
             Rails.logger.warn "[Tillbell] Ignoring App Store transaction #{transaction["transactionId"]}: unknown account"
@@ -74,8 +77,11 @@ module Pay
             revoked_at: Tillbell::AppStore.time(transaction["revocationDate"])&.iso8601
           )
         end
-        if renewal_info
+        # Renewal information is ordered by its own signing date, so a stale notification processed
+        # late (a billing failure after the renewal that fixed it) never brings back old state.
+        if renewal_info && renewal_info["signedDate"].to_i >= renewal_signed_ms.to_i
           assign_attributes(
+            renewal_signed_ms: renewal_info["signedDate"].to_i,
             auto_renewing: renewal_info["autoRenewStatus"] == 1,
             auto_renew_product_id: renewal_info["autoRenewProductId"],
             billing_retry: renewal_info["isInBillingRetryPeriod"] == true,
@@ -104,8 +110,10 @@ module Pay
         if persisted? && !revoked?
           events << :plan_changed if processor_plan_changed?
           events << :subscription_renewed if status == "active" && !processor_plan_changed? && current_period_end_changed? && current_period_end_was.present? && current_period_end > current_period_end_was
-          events << :payment_failed if billing_retry && !billing_retry_was
-          events << :payment_recovered if !billing_retry && billing_retry_was
+          # The store accessor's +_was+ answers nil for a value that did not change.
+          was_retrying = billing_retry_changed? ? billing_retry_was : billing_retry
+          events << :payment_failed if billing_retry && !was_retrying
+          events << :payment_recovered if !billing_retry && was_retrying
         end
         events.compact
       end
@@ -113,6 +121,23 @@ module Pay
       # True when Apple refunded the purchase.
       def revoked?
         revoked_at.present?
+      end
+
+      # True for a purchase made with a sandbox Apple Account (Xcode, TestFlight, App Review),
+      # which costs nothing. Tillbell accepts them so App Review and testers can buy; check this
+      # to keep them out of revenue reports, or to refuse them.
+      def sandbox?
+        environment == "Sandbox"
+      end
+
+      # The App Store has no base plans: each duration is its own product.
+      def base_plan_id
+        nil
+      end
+
+      # The plan of +Tillbell.plans+ whose +product_id+ is this App Store product, or nil.
+      def plan
+        Tillbell.plan(product_id: processor_plan)
       end
 
       # The App Store has no pause.

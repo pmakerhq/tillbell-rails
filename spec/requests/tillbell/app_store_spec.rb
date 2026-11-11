@@ -107,6 +107,28 @@ RSpec.describe "App Store purchases and notifications" do
       expect(Pay::Webhook.count).to eq(0)
     end
 
+    it "ignores notifications about other in-app purchases of the app" do
+      consumable = transaction.merge("type" => "Consumable")
+      post_notification(app_store_jws(app_store_notification("ONE_TIME_CHARGE", transaction: consumable)))
+
+      expect { perform_enqueued_jobs(only: Pay::Webhooks::ProcessJob) }.not_to raise_error
+      expect(Pay::AppStore::Subscription.count).to eq(0)
+    end
+
+    it "acknowledges a summary notification, whose app is under summary" do
+      post_notification(app_store_jws({ "notificationType" => "RENEWAL_EXTENSION", "subtype" => "SUMMARY",
+                                        "summary" => { "bundleId" => AppStoreHelpers::BUNDLE_ID } }))
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it "answers 401, not 500, to garbage" do
+      header = Base64.urlsafe_encode64("null", padding: false)
+      post_notification("#{header}.e30.c2ln")
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
     it "acknowledges a test notification without storing it" do
       post_notification(app_store_jws({ "notificationType" => "TEST", "data" => { "bundleId" => AppStoreHelpers::BUNDLE_ID } }))
 

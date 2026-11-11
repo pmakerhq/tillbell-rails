@@ -43,7 +43,9 @@ module Tillbell
     # Cancels what +billing_subscriptions+ lists, to call before closing or deleting the
     # account and before changing anything in the database: an error raised afterwards would
     # leave a closed account that is still billed. Google Play subscriptions only stop
-    # renewing, the customer keeps access until the end of the paid period. Raises +Pay::Error+
+    # renewing, the customer keeps access until the end of the paid period. App Store
+    # subscriptions cannot be stopped from a server: they are left unchanged, so send the
+    # customer to their +manage_url+ before closing the account. Raises +Pay::Error+
     # (+Tillbell::Error+ for Google Play) when a processor refuses.
     def cancel_billing_subscriptions!
       billing_subscriptions.each(&:cancel_now!)

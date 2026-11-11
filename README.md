@@ -628,6 +628,8 @@ How App Store subscriptions differ:
 - `processor_id` is the `originalTransactionId`, which stays the same across renewals and plan changes.
 - The Pay customer (`Pay::AppStore::Customer`) shares its `processor_id` with the owner's Google Play customer: the paywall sends one account id to both apps, passed to StoreKit as the `appAccountToken`.
 - Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
+- Sandbox purchases (Xcode, TestFlight, App Review) are accepted, so App Review can buy against your production server; `sandbox?` tells them apart, for example to keep them out of revenue reports.
+- Family-shared subscriptions are not recorded: they belong to the family member who bought them.
 - Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account.
 - An Ask to Buy purchase is answered `pending` without a token: the paywall shows its pending message, and the subscription is recorded from Apple's notification once a parent approves it.
 
