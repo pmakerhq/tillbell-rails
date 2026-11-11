@@ -1,4 +1,4 @@
-# Tillbell: Google Play subscriptions stored as Pay subscriptions.
+# Tillbell: Google Play and App Store subscriptions stored as Pay subscriptions.
 # See https://github.com/pmakerhq/tillbell-rails#configuration
 #
 # The two values below come from Google: the README's "Google Play setup" has the credentials
@@ -17,6 +17,11 @@ Tillbell.configure do |config|
 
   # Audience of the Pub/Sub OIDC token, if it is not the notification endpoint URL.
   # config.google.pubsub_audience = "https://example.com/tillbell/notifications/google_play"
+
+  # Bundle identifier of the iOS app, to accept App Store purchases (tillbell-ios). Set the
+  # App Store Server Notifications URL to https://<your host>/tillbell/notifications/app_store
+  # (version 2) in App Store Connect.
+  # config.apple.bundle_id = "com.example.app"
 
   # Who is buying. Evaluated in the controller and the view of the paywall.
   # config.current_owner = -> { current_user }

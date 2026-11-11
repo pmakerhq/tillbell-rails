@@ -2,6 +2,7 @@ require "pay"
 require "tillbell/version"
 require "tillbell/engine"
 require "tillbell/google_play"
+require "tillbell/app_store"
 require "tillbell/check"
 require "tillbell/owner"
 
@@ -44,6 +45,12 @@ module Tillbell
   # [pubsub_service_account_email] Service account Pub/Sub signs its push requests with.
   # [pubsub_audience] Audience of those requests; defaults to the notification endpoint URL.
   mattr_accessor :google, default: ActiveSupport::OrderedOptions.new
+
+  # App Store settings.
+  #
+  # [bundle_id] Bundle identifier of the iOS app, e.g. "com.example.app". Transactions and
+  #             notifications signed for another app are refused.
+  mattr_accessor :apple, default: ActiveSupport::OrderedOptions.new
 
   # Returns the Pay owner (usually a User) the current request acts for, or nil.
   # Evaluated with +instance_exec+ in the controller and in the view, so any helper
