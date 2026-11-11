@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-11
+
 ### Changed
 
 - The gem author and the license holder are now `pmakerhq`.
