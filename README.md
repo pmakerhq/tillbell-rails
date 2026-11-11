@@ -53,7 +53,7 @@ Assuming a Rails 8 app with a `User` model and Pay installed:
 
    ```sh
    bundle add pay
-   bundle add tillbell --github pmakerhq/tillbell-rails   # until the first RubyGems release
+   bundle add tillbell
    bin/rails generate tillbell:install
    ```
 
