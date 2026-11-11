@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security issues must not be reported here: see SECURITY.md.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: A failing spec or a minimal app is the fastest way to a fix.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove credentials and personal data first.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: Tillbell 0.1.0, Pay 12.0, Rails 8.1, Ruby 3.4
+    validations:
+      required: true

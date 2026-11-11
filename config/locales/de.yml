@@ -1,0 +1,15 @@
+# Paywall-Texte auf Deutsch. Jeder Text lässt sich in den Sprachdateien der Anwendung überschreiben.
+de:
+  tillbell:
+    paywall:
+      submit: "Abonnieren"
+      restore: "Käufe wiederherstellen"
+      manage: "Abo verwalten"
+      fallback: "Abos sind in der neuesten Version der Android-App verfügbar."
+      messages:
+        verifying: "Wir prüfen Ihren Kauf. Das kann einige Minuten dauern."
+        pending: "Ihre Zahlung steht noch aus. Ihr Abo beginnt, sobald sie bestätigt ist."
+        unavailable: "Google Play Billing ist auf diesem Gerät nicht verfügbar."
+        nothing_to_restore: "Keine Käufe zum Wiederherstellen."
+        rejected: "Dieser Kauf gehört zu einem anderen Konto."
+        error: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut."

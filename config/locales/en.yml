@@ -1,0 +1,16 @@
+# Texts of the paywall. Override any of them in your app's locale files.
+en:
+  tillbell:
+    paywall:
+      submit: "Subscribe"
+      restore: "Restore purchases"
+      manage: "Manage subscription"
+      fallback: "Subscriptions are available in the latest version of the Android app."
+      # Status messages shown by the Stimulus controller.
+      messages:
+        verifying: "We are checking your purchase. This can take a few minutes."
+        pending: "Your payment is pending. Your subscription starts as soon as it is confirmed."
+        unavailable: "Google Play billing is not available on this device."
+        nothing_to_restore: "No purchase to restore."
+        rejected: "This purchase belongs to another account."
+        error: "Something went wrong. Please try again."

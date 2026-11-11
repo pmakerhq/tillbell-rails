@@ -1,0 +1,15 @@
+# Textos del paywall en español. Cada texto puede sustituirse en los archivos de idioma de la aplicación.
+es:
+  tillbell:
+    paywall:
+      submit: "Suscribirse"
+      restore: "Restaurar compras"
+      manage: "Gestionar suscripción"
+      fallback: "Las suscripciones están disponibles en la última versión de la aplicación Android."
+      messages:
+        verifying: "Estamos comprobando su compra. Puede tardar unos minutos."
+        pending: "Su pago está pendiente. Su suscripción empieza en cuanto se confirme."
+        unavailable: "La facturación de Google Play no está disponible en este dispositivo."
+        nothing_to_restore: "No hay compras que restaurar."
+        rejected: "Esta compra pertenece a otra cuenta."
+        error: "Algo ha salido mal. Inténtelo de nuevo."

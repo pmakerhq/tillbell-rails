@@ -1,0 +1,11 @@
+/.bundle/
+/pkg/
+/tmp/
+/vendor/
+*.gem
+Gemfile.lock
+spec/dummy/db/*.sqlite3*
+spec/dummy/log/
+spec/dummy/tmp/
+spec/dummy/storage/
+.envrc

@@ -1,0 +1,13 @@
+<%= tillbell_paywall success_url: dashboard_path, id: "paywall" do |paywall| %>
+  <%= paywall.plan_option product_id: "premium", base_plan_id: "monthly", checked: true do %>
+    Monthly, <%= paywall.price %>
+  <% end %>
+  <%= paywall.plan_option product_id: "premium", base_plan_id: "yearly" do %>
+    Yearly, <%= paywall.price %>
+  <% end %>
+  <%= paywall.submit %>
+  <%= paywall.restore %>
+  <%= paywall.manage %>
+  <%= paywall.status %>
+  <%= paywall.fallback %>
+<% end %>

@@ -1,0 +1,25 @@
+
+Tillbell is installed. What is left happens on Google's side.
+
+1. Put the two values Google gives you in your credentials
+   (bin/rails credentials:edit, or --environment production):
+
+     tillbell:
+       # The whole JSON key file of the service account that calls Google.
+       # Keep the "|" and the two-space indentation.
+       google_service_account: |
+         { "type": "service_account", "client_email": "<tillbell-api>@<project>.iam.gserviceaccount.com", ... }
+       # The service account Pub/Sub signs its notifications with.
+       pubsub_service_account_email: <tillbell-push>@<project>.iam.gserviceaccount.com
+
+2. Set config.google.package_name in config/initializers/tillbell.rb.
+
+3. Follow "Google Play setup" for every click (Play Console, service accounts, Pub/Sub). Allow
+   up to a day for Google to apply the permissions you grant:
+   https://github.com/pmakerhq/tillbell-rails#google-play-setup
+
+4. Check it:
+
+     bin/rails tillbell:check
+     ONLINE=1 PLANS=premium:monthly bin/rails tillbell:check    # also asks Google
+

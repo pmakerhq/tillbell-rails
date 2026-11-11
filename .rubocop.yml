@@ -1,0 +1,9 @@
+inherit_gem:
+  rubocop-rails-omakase: rubocop.yml
+
+AllCops:
+  Exclude:
+    - "spec/dummy/db/schema.rb"
+    # Copied from the pay gem by `rails pay:install:migrations`.
+    - "spec/dummy/db/migrate/*.pay.rb"
+    - "vendor/**/*"
