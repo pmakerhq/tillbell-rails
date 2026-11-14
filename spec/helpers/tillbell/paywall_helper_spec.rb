@@ -40,6 +40,22 @@ RSpec.describe Tillbell::PaywallHelper, type: :helper do
       expect { builder.plan_change(to: :family, from: current) { "Family" } }.to raise_error(ArgumentError, /not in Tillbell.plans/)
     end
 
+    it "moves an App Store subscription by buying the target product alone" do
+      app_store = create_app_store_subscription(user, product_id: "app_solo")
+      input = Nokogiri::HTML.fragment(builder.plan_change(to: :family, from: app_store) { "Family" }).at_css("input")
+
+      expect(input.attributes.transform_values(&:value)).to include("value" => "app_family", "checked" => "checked")
+      expect(input.attributes).not_to include("data-old-purchase-token", "data-replacement-mode", "data-base-plan-id")
+    end
+
+    it "renders a plan with the ids of the store of the app" do
+      helper.request.user_agent = "Example; Hotwire Native iOS; bridge-components: [tillbell];"
+      expect(Nokogiri::HTML.fragment(builder.plan_option(plan: :family) { "" }).at_css("input")["value"]).to eq("app_family")
+
+      helper.request.user_agent = "Example; Hotwire Native Android; bridge-components: [tillbell];"
+      expect(Nokogiri::HTML.fragment(builder.plan_option(plan: :family) { "" }).at_css("input")["value"]).to eq("app_family:monthly")
+    end
+
     it "refuses a plan that is not in Tillbell.plans" do
       expect { builder.plan_change(to: :gold, from: current) { "Gold" } }.to raise_error(ArgumentError, /not in Tillbell.plans/)
     end

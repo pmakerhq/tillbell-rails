@@ -27,7 +27,8 @@ module Tillbell
     #         any, +online+ lists what the Play Console has.
     def initialize(online: false, plans: Tillbell.plans)
       @online = online
-      @plans = Array(plans).map { |plan| normalize(plan) }
+      # App Store plans have nothing to check with Google.
+      @plans = Array(plans).map { |plan| normalize(plan) }.select { |plan| plan[:product_id].present? }
       @results = []
     end
 

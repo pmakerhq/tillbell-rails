@@ -32,8 +32,9 @@ RSpec.describe "Store helpers on Pay subscriptions" do
 
   it "tells test purchases" do
     expect(play).not_to be_sandbox
-    expect(Pay::GooglePlay::Subscription.sync("test", object: google_subscription(account_id: account_id).merge(test_purchase: {}))).to be_sandbox
-    expect(app_store).to be_sandbox
+    expect(Pay::GooglePlay::Subscription.sync("test", object: google_subscription(account_id: account_id, test_purchase: true))).to be_sandbox
+    expect(app_store).not_to be_sandbox
+    expect(app_store(environment: "Sandbox")).to be_sandbox
     expect(stripe).not_to be_sandbox
   end
 

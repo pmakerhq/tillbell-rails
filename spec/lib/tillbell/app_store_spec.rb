@@ -6,6 +6,31 @@ RSpec.describe Tillbell::AppStore do
       expect(described_class.verify_transaction!(app_store_jws(transaction))).to eq(transaction)
     end
 
+    describe "Xcode StoreKit Testing" do
+      let(:xcode) { JWT.encode(app_store_transaction(account_id: SecureRandom.uuid, environment: "Xcode"), OpenSSL::PKey::EC.generate("prime256v1"), "ES256") }
+
+      after { Tillbell.apple.allow_xcode_transactions = nil }
+
+      it "accepts an Xcode transaction without Apple's signature only when allowed, and never elsewhere than in development and test" do
+        expect { described_class.verify_transaction!(xcode) }.to raise_error(Tillbell::Error)
+
+        Tillbell.apple.allow_xcode_transactions = true
+        expect(described_class.verify_transaction!(xcode)).to include("environment" => "Xcode")
+
+        allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+        expect { described_class.verify_transaction!(xcode) }.to raise_error(Tillbell::Error)
+      end
+
+      it "still checks the app and the product type, and leaves other unsigned transactions refused" do
+        Tillbell.apple.allow_xcode_transactions = true
+        other_app = JWT.encode(app_store_transaction(account_id: "a", environment: "Xcode", bundle_id: "com.other"), nil, "none")
+        forged = JWT.encode(app_store_transaction(account_id: "a", environment: "Production"), nil, "none")
+
+        expect { described_class.verify_transaction!(other_app) }.to raise_error(Tillbell::Error, /another app/)
+        expect { described_class.verify_transaction!(forged) }.to raise_error(Tillbell::Error)
+      end
+    end
+
     it "refuses a payload changed after signing" do
       header, _payload, signature = app_store_jws(transaction).split(".")
       forged = Base64.urlsafe_encode64(transaction.merge("productId" => "premium.yearly").to_json, padding: false)

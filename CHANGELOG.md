@@ -19,6 +19,23 @@ All notable changes to this project are documented in this file. The format foll
   Native iOS app, `:google_play` in the Android one, nil in a browser.
 - `Pay::AppStore::Subscription#replacement?` and `#replaced?`, always false, and
   `Tillbell::AppStore::REFUND_URL`.
+- `config.apple.allow_xcode_transactions` accepts Xcode StoreKit Testing transactions, unsigned
+  by Apple, in the development and test environments only.
+- `config.apple.stale_after`: an App Store subscription stops giving access that long after the
+  end of a period no notification renewed (`stale?`).
+- `price_amount` and `price_currency` on App Store subscriptions.
+- `app_store_product_id` on plans (the Google Play `product_id` by default; an App Store-only
+  plan has no `product_id`), `paywall.plan_option(plan:)` with the ids of the app's store, and
+  `paywall.plan_change` from an App Store subscription.
+- The `subscription_reactivated` event, when a customer takes a cancellation back before the end
+  of the period.
+- `require "tillbell/test_helpers"`: `Tillbell::TestHelpers` creates store subscriptions in a
+  host app's tests.
+
+### Changed
+
+- App Store `sandbox?` is also true for Xcode StoreKit Testing purchases.
+- `tillbell:check` skips plans without a Google Play `product_id`.
 
 ## [0.6.0] - 2026-11-11
 

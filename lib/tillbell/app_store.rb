@@ -70,8 +70,13 @@ module Tillbell
       # Verifies a signed transaction (+VerificationResult.jwsRepresentation+ in StoreKit 2)
       # and returns its payload. Raises +Tillbell::Error+ unless Apple signed it, for this app
       # (+config.apple.bundle_id+), and it is an auto-renewable subscription.
+      #
+      # With +config.apple.allow_xcode_transactions+, in development and test, a transaction
+      # Xcode signed for StoreKit Testing is accepted without checking its signature, as
+      # Apple's own server libraries do for the Xcode environment. Notifications never come from
+      # Xcode and are always fully verified.
       def verify_transaction!(jws)
-        transaction = decode!(jws)
+        transaction = xcode_transaction(jws) || decode!(jws)
         raise Error, "The transaction belongs to another app (#{transaction["bundleId"]})" unless transaction["bundleId"] == bundle_id
         raise Error, "The transaction is not an auto-renewable subscription" unless transaction["type"] == AUTO_RENEWABLE
 
@@ -140,6 +145,18 @@ module Tillbell
       end
 
       private
+        # The payload of +jws+ when it is an Xcode StoreKit Testing transaction that the
+        # configuration allows, otherwise nil. Never in production or staging: without Apple's
+        # signature, anyone could forge one.
+        def xcode_transaction(jws)
+          return unless Tillbell.apple.allow_xcode_transactions && Rails.env.local?
+
+          payload, = JWT.decode(jws, nil, false)
+          payload if payload["environment"] == "Xcode"
+        rescue JWT::DecodeError
+          nil
+        end
+
         # The chain must be valid when Apple signed the data, not only today: a transaction
         # signed a year ago, restored now, may carry a leaf certificate that has since expired.
         def verify_chain!(leaf, intermediate, root, at:)

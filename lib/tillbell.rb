@@ -28,13 +28,25 @@ module Tillbell
   # The events Tillbell emits, in the order a subscription usually goes through them.
   # +subscription_updated+ fires for any change; +subscription_renewed+, +payment_failed+,
   # +payment_recovered+ and +plan_changed+ say which one happened.
+  # +subscription_reactivated+ follows a +subscription_canceled+ the customer took back
+  # before the end of the period.
   EVENTS = %i[subscription_created subscription_updated subscription_renewed payment_failed payment_recovered plan_changed
-              subscription_canceled subscription_expired subscription_revoked purchase_rejected].freeze
+              subscription_canceled subscription_reactivated subscription_expired subscription_revoked purchase_rejected].freeze
 
-  # A plan the app sells: a Google Play product and its base plan, under a name of your own.
-  Plan = Data.define(:name, :product_id, :base_plan_id) do
-    def initialize(name:, product_id:, base_plan_id: nil)
-      super(name: name.to_sym, product_id: product_id, base_plan_id: base_plan_id)
+  # A plan the app sells, under a name of your own: a Google Play product and its base plan,
+  # and the App Store product of the same plan. The App Store product id defaults to the Google
+  # Play one; an app sold on one store only leaves the other's id out.
+  Plan = Data.define(:name, :product_id, :base_plan_id, :app_store_product_id) do
+    def initialize(name:, product_id: nil, base_plan_id: nil, app_store_product_id: product_id)
+      raise ArgumentError, "plan #{name.inspect} needs a product_id or an app_store_product_id" if product_id.blank? && app_store_product_id.blank?
+
+      super(name: name.to_sym, product_id: product_id, base_plan_id: base_plan_id, app_store_product_id: app_store_product_id)
+    end
+
+    # The ids the app of +store+ (+:app_store+ or +:google_play+) buys this plan with, as the
+    # +product_id+ and +base_plan_id+ of a paywall option. The App Store has no base plans.
+    def product_for(store)
+      store == :app_store ? { product_id: app_store_product_id, base_plan_id: nil } : { product_id: product_id, base_plan_id: base_plan_id }
     end
   end
 
@@ -50,6 +62,14 @@ module Tillbell
   #
   # [bundle_id] Bundle identifier of the iOS app, e.g. "com.example.app". Transactions and
   #             notifications signed for another app are refused.
+  # [allow_xcode_transactions] Accept the transactions Xcode signs locally for StoreKit
+  #                            Testing (a +.storekit+ configuration file), in the development
+  #                            and test environments only. See
+  #                            +Tillbell::AppStore.verify_transaction!+.
+  # [stale_after] How long after the end of its period an App Store subscription that no
+  #               notification renewed or ended keeps giving access, e.g. +16.days+ (set it at
+  #               least to the billing grace period of your subscriptions). Nil, the default,
+  #               trusts the last state Apple notified forever.
   mattr_accessor :apple, default: ActiveSupport::OrderedOptions.new
 
   # Returns the Pay owner (usually a User) the current request acts for, or nil.
@@ -70,11 +90,11 @@ module Tillbell
   #
   #   config.plans = [
   #     { name: :solo, product_id: "app_solo", base_plan_id: "monthly" },
-  #     { name: :family, product_id: "app_family", base_plan_id: "monthly" }
+  #     { name: :family, product_id: "app_family", base_plan_id: "monthly", app_store_product_id: "app.family.monthly" }
   #   ]
   #
-  # +tillbell:check+ checks them with Google, and +Pay::GooglePlay::Subscription#plan+ finds
-  # the one a subscription is on.
+  # +tillbell:check+ checks the Google Play ones with Google, and +plan+ on a store subscription
+  # finds the one it is on.
   mattr_reader :plans, default: [].freeze
 
   # What Hotwire Native writes in the user agent for the bridge components the app
@@ -121,16 +141,18 @@ module Tillbell
     def plans=(list)
       @@plans = list.map do |plan|
         next plan if plan.is_a?(Plan)
-        raise ArgumentError, "a plan is a hash with :name, :product_id and :base_plan_id, got #{plan.inspect}" unless plan.respond_to?(:to_h) && !plan.nil?
+        raise ArgumentError, "a plan is a hash with :name and :product_id or :app_store_product_id, got #{plan.inspect}" unless plan.respond_to?(:to_h) && !plan.nil?
 
         Plan.new(**plan.to_h.symbolize_keys)
       end.freeze
     end
 
-    # Finds a plan of +plans+ by +name+ (a symbol or string) or by Google ids. With a
-    # +base_plan_id+ that no plan has, falls back to the product's plan when it has only one.
-    def plan(name = nil, product_id: nil, base_plan_id: nil)
+    # Finds a plan of +plans+ by +name+ (a symbol or string), by App Store product id, or by
+    # Google ids. With a +base_plan_id+ that no plan has, falls back to the product's plan when
+    # it has only one.
+    def plan(name = nil, product_id: nil, base_plan_id: nil, app_store_product_id: nil)
       return plans.find { |plan| plan.name == name.to_sym } if name
+      return plans.find { |plan| plan.app_store_product_id == app_store_product_id } if app_store_product_id
 
       matches = plans.select { |plan| plan.product_id == product_id }
       matches.find { |plan| plan.base_plan_id == base_plan_id } || (matches.first if matches.one?)
