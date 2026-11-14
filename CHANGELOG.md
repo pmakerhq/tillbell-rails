@@ -32,6 +32,12 @@ All notable changes to this project are documented in this file. The format foll
 - `require "tillbell/test_helpers"`: `Tillbell::TestHelpers` creates store subscriptions in a
   host app's tests.
 
+- The paywall controller keeps the last store prices on the device and shows them while the
+  store answers. Copy the new `tillbell_controller.js` from the generator template into your app.
+- Bridge contract: native components can be limited to the hosts of the app's pages
+  (`allowedHosts` in tillbell-ios and tillbell-android); a message from another host gets an
+  `error` reply.
+
 ### Changed
 
 - App Store `sandbox?` is also true for Xcode StoreKit Testing purchases.

@@ -23,7 +23,7 @@ Messages use the [Hotwire Native bridge](https://native.hotwired.dev/overview/br
   the first three by replying to the same message (`replyTo(event, data)` on Android);
   `manage` gets no reply.
 - The bridge adds a `metadata` object (`{ "url": ... }`) to every message the page sends.
-  Native code ignores it.
+  Native code only reads it to check where the message comes from (see below).
 - The page only loads the controller when the app's user agent lists the `tillbell`
   component. In a browser, or in an app version without the component, the paywall shows its
   fallback and no message is ever sent.
@@ -41,6 +41,11 @@ Messages use the [Hotwire Native bridge](https://native.hotwired.dev/overview/br
 - **Pending purchases** must be enabled (`enablePendingPurchases`), as Play requires.
 - **Always reply** to `products`, `purchase` and `restore`, including on errors, so the page
   never waits forever.
+- **Only your pages may buy.** The app can be configured with the hosts of its pages
+  (`allowedHosts` on iOS and Android). The host of `metadata.url` must then be one of them,
+  compared without case: any other message, or one without a readable URL, gets an `error`
+  reply with a `message`, and `manage` is ignored. Without allowed hosts, every page is
+  accepted.
 
 ## Messages
 
