@@ -207,6 +207,13 @@ module Pay
         status == "paused"
       end
 
+      # True for a purchase made by a license tester, which Google does not charge: Google's
+      # answer then carries +testPurchase+. Check it to keep test purchases out of revenue
+      # reports and conversion events.
+      def sandbox?
+        google_object.key?(:test_purchase)
+      end
+
       # True while Google still counts the purchase as the customer's: buying the same product
       # again would be answered +ALREADY_OWNED+, so offer +manage_url+ rather than a paywall. It
       # covers states that give no access (see +grants_access?+): a paused subscription resumes

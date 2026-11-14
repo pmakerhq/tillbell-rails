@@ -82,7 +82,27 @@ module Tillbell
   # list for the paywall to work.
   NATIVE_USER_AGENT = /bridge-components: \[(?:[^\]]*\s)?tillbell[\s\]]/
 
+  # What Hotwire Native writes in the user agent of each platform, and the store its in-app
+  # purchases go through.
+  NATIVE_STORES = {
+    /\b(?:Hotwire|Turbo) Native iOS\b/ => :app_store,
+    /\b(?:Hotwire|Turbo) Native Android\b/ => :google_play
+  }.freeze
+
   class << self
+    # The store in-app purchases go through in the Hotwire Native app +user_agent+ comes from:
+    # +:app_store+ (iOS), +:google_play+ (Android), or nil in a browser. Unlike +native?+, it
+    # does not need the +tillbell+ component, so it also answers for app versions that cannot
+    # buy yet. Use it for the store rules that apply to the whole app, e.g. the App Store
+    # forbids linking to another way to pay:
+    #
+    #   Tillbell.store(request.user_agent) == :app_store
+    #
+    # Like +native?+, it only picks what to show: a forged user agent gains nothing.
+    def store(user_agent)
+      NATIVE_STORES.find { |pattern, _store| pattern.match?(user_agent.to_s) }&.last
+    end
+
     # True when +user_agent+ comes from a native app that registered the +tillbell+ bridge
     # component (Android today, iOS later), so a Google Play purchase can start from the
     # page. Use it to choose between the paywall and another way to pay, e.g. a web checkout:

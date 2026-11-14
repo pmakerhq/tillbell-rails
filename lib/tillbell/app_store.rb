@@ -46,6 +46,10 @@ module Tillbell
     # subscriptions. Same page as the +manage+ message of the iOS component.
     MANAGE_URL = "https://apps.apple.com/account/subscriptions".freeze
 
+    # The page where a customer asks Apple for a refund: only Apple refunds App Store
+    # purchases, the app cannot. Apple then notifies the refund, which revokes the subscription.
+    REFUND_URL = "https://reportaproblem.apple.com".freeze
+
     class << self
       # The certificates a chain must end at. Only specs change it.
       attr_writer :root_certificates

@@ -359,6 +359,9 @@ A plan change from the settings page is then one option in a paywall:
 |---|---|
 | `google_play_subscription` | The Google Play subscription, whatever the default processor. |
 | `google_play_on_hold?` | True when Google suspended the subscription for a failed payment: send the customer to `manage_url` rather than to a second subscription, which would bill twice if Google's retry succeeds. |
+| `store_subscription`, `store_on_hold?` | The same for either store: the most relevant Google Play or App Store subscription, and whether the store suspended it. |
+| `owned_store_subscription` | The store subscription the store still counts as the customer's, with or without access (`owned?`): offer its `manage_url`, not a second purchase on the web, which would bill twice. |
+| `subscriptions_to_cancel_in_store` | App Store subscriptions that still renew. Only the customer can stop them, so show their `manage_url` before closing the account. |
 | `current_subscription` | The subscription to show and decide access from: the one that renews, then one that is canceled but running, then one whose payment is retried or that is paused; the most recent breaks a tie. |
 | `billing_subscriptions` | What still bills or resumes by itself (`subscription.billing?`), Google Play first. |
 | `cancel_billing_subscriptions!` | Cancels them: call it before closing or deleting an account. |
@@ -371,7 +374,15 @@ def subscribed? = !!current_user.current_subscription&.grants_access?
 
 A customer can have a Stripe subscription and a Google Play one (a web customer who later subscribes in the app, or the reverse). `Pay::GooglePlay::Customer` is never the owner's default payment processor, so `owner.payment_processor` does not see Google Play subscriptions: look at `owner.pay_subscriptions`, or at the Google Play customer (`owner.pay_customers.google_play.first`), to decide who has access.
 
-Pay only knows its own processors, so Tillbell adds `google_play?` to customers and subscriptions, and a `google_play` scope next to Pay's `stripe` one (`Pay::Subscription.google_play`).
+Pay only knows its own processors, so Tillbell adds `google_play?` and `app_store?` to customers and subscriptions, and matching scopes next to Pay's `stripe` one (`Pay::Subscription.google_play`). Code that does not care which store adds these, on every Pay subscription:
+
+| Method | Returns |
+|---|---|
+| `store?`, `store_name` | Whether it was bought in a store, and which one: `"Google Play"`, `"App Store"`, or nil for another processor. |
+| `renewing?` | Gives access and will renew by itself (not canceled with an end date to come). |
+| `sandbox?` | A test purchase that costs nothing: an App Store sandbox purchase, or a Google Play license tester's. False for other processors. Keep them out of revenue reports and conversion events. |
+
+`Tillbell.store(request.user_agent)` (`tillbell_store` in views) tells which store the Hotwire Native app showing the page buys from: `:app_store`, `:google_play`, or nil in a browser. Unlike `tillbell_native?` it does not need the `tillbell` component, so it also answers for app versions that cannot buy yet, which is what store rules need, e.g. no link to a web checkout in the iOS app.
 
 `subscription.cancel` stops the renewal through the Google Play Developer API; the customer keeps access until the end of the paid period. Google can only end a subscription immediately by refunding it, which Tillbell never does on its own, so `cancel_now!` (which Pay calls when an owner is destroyed) also just stops the renewal. Google answers 410 for a purchase token that expired more than 60 days ago: a subscription still stored as active (a missed notification) is then recorded as ended, with a `subscription_expired` event, instead of failing the deletion of its owner. Any other error is raised, a 404 from a wrong package name for example: the subscription may still be billing. A subscription ended or already canceled is left alone, and one that waits for a deferred plan change is cancelled like any other: whether it is renewing comes from Google's subscription state, not from the entitlement about to end. `swap`, `pause` and `resume` raise `Tillbell::Error`: plan changes go through the paywall, and the rest happens in the Play Store.
 
@@ -630,7 +641,8 @@ How App Store subscriptions differ:
 - Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
 - Sandbox purchases (Xcode, TestFlight, App Review) are accepted, so App Review can buy against your production server; `sandbox?` tells them apart, for example to keep them out of revenue reports.
 - Family-shared subscriptions are not recorded: they belong to the family member who bought them.
-- Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account.
+- Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account (`owner.subscriptions_to_cancel_in_store` lists them). Only Apple refunds, at `Tillbell::AppStore::REFUND_URL`.
+- `replacement?` and `replaced?` are always false: a plan change keeps the same `originalTransactionId`.
 - An Ask to Buy purchase is answered `pending` without a token: the paywall shows its pending message, and the subscription is recorded from Apple's notification once a parent approves it.
 
 ## Security

@@ -1,4 +1,16 @@
 RSpec.describe Tillbell do
+  describe ".store" do
+    it "names the store of the Hotwire Native app, with or without the tillbell component" do
+      expect(described_class.store("Example iOS; Hotwire Native iOS; Turbo Native iOS; bridge-components: [haptic];")).to eq(:app_store)
+      expect(described_class.store("Example; Hotwire Native Android; Turbo Native Android; bridge-components: [tillbell];")).to eq(:google_play)
+    end
+
+    it "is nil in a browser" do
+      expect(described_class.store("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1")).to be_nil
+      expect(described_class.store(nil)).to be_nil
+    end
+  end
+
   describe ".native?" do
     def user_agent(components) = "Example; Hotwire Native Android; Turbo Native Android; bridge-components: [#{components}];"
 

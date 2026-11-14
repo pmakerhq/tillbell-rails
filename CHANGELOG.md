@@ -6,6 +6,20 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- Helpers that work for both stores, so an app needs no `is_a?` on the processor classes:
+  `store?` and `store_name` ("Google Play", "App Store") on Pay subscriptions (`store?` on
+  customers too), `renewing?` (gives access and has no end date) and `sandbox?` (an App Store
+  sandbox purchase or a Google Play license tester's; always false for other processors).
+- `Tillbell::Owner#store_subscription`, `#store_on_hold?` and `#owned_store_subscription`, the
+  Google Play helpers extended to the App Store, and `#subscriptions_to_cancel_in_store`, the App
+  Store subscriptions still renewing that only the customer can stop.
+- `Tillbell.store(user_agent)` and the `tillbell_store` view helper: `:app_store` in the Hotwire
+  Native iOS app, `:google_play` in the Android one, nil in a browser.
+- `Pay::AppStore::Subscription#replacement?` and `#replaced?`, always false, and
+  `Tillbell::AppStore::REFUND_URL`.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

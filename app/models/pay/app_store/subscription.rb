@@ -130,6 +130,17 @@ module Pay
         environment == "Sandbox"
       end
 
+      # The App Store never replaces a subscription with a new purchase: a plan change keeps the
+      # same +originalTransactionId+. Defined so code written for both stores can ask.
+      def replacement?
+        false
+      end
+
+      # See +replacement?+.
+      def replaced?
+        false
+      end
+
       # The App Store has no base plans: each duration is its own product.
       def base_plan_id
         nil
