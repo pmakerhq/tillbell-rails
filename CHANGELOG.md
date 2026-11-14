@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-14
+
 ### Added
 
 - Helpers that work for both stores, so an app needs no `is_a?` on the processor classes:
@@ -25,13 +27,12 @@ All notable changes to this project are documented in this file. The format foll
   end of a period no notification renewed (`stale?`).
 - `price_amount` and `price_currency` on App Store subscriptions.
 - `app_store_product_id` on plans (the Google Play `product_id` by default, unless several plans
-  share that product; an App Store-only plan has no `product_id`), `paywall.plan_option(plan:)` with the ids of the app's store, and
-  `paywall.plan_change` from an App Store subscription.
+  share that product; an App Store-only plan has no `product_id`), `paywall.plan_option(plan:)`
+  with the ids of the app's store, and `paywall.plan_change` from an App Store subscription.
 - The `subscription_reactivated` event, when a customer takes a cancellation back before the end
   of the period.
 - `require "tillbell/test_helpers"`: `Tillbell::TestHelpers` creates store subscriptions in a
   host app's tests.
-
 - The paywall controller keeps the last store prices on the device and shows them while the
   store answers. Copy the new `tillbell_controller.js` from the generator template into your app.
 - Bridge contract: the iOS component can be limited to the hosts of the app's pages
