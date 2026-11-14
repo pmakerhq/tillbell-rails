@@ -87,10 +87,13 @@ module Tillbell
         pay_subscriptions.merge(Pay::Customer.active).where(pay_customers: { processor: %w[google_play app_store] }).order(created_at: :desc)
       end
 
+      # An App Store subscription that went stale (see Pay::AppStore::Subscription#stale?) is
+      # still "active" but must not hide one that grants access.
       def subscription_standing(subscription)
-        if subscription.active? && !subscription.on_grace_period? then 0
-        elsif subscription.active? then 1
-        elsif subscription.billing? then 2
+        active = subscription.active? && !subscription.try(:stale?)
+        if active && !subscription.on_grace_period? then 0
+        elsif active then 1
+        elsif subscription.billing? && !subscription.try(:stale?) then 2
         else 3
         end
       end

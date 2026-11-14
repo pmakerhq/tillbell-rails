@@ -56,6 +56,22 @@ RSpec.describe Tillbell::PaywallHelper, type: :helper do
       expect(Nokogiri::HTML.fragment(builder.plan_option(plan: :family) { "" }).at_css("input")["value"]).to eq("app_family:monthly")
     end
 
+    it "renders an App Store-only plan with its App Store id in a browser, and nothing in the Android app" do
+      Tillbell.plans = [ { name: :pro, app_store_product_id: "app.pro.monthly" } ]
+
+      helper.request.user_agent = "Mozilla/5.0 (Macintosh) Safari/605.1"
+      expect(Nokogiri::HTML.fragment(builder.plan_option(plan: :pro) { "" }).at_css("input")["value"]).to eq("app.pro.monthly")
+
+      helper.request.user_agent = "Example; Hotwire Native Android; bridge-components: [tillbell];"
+      expect(builder.plan_option(plan: :pro) { "" }).to eq("")
+    end
+
+    it "refuses an App Store move to the current plan" do
+      app_store = create_app_store_subscription(user, product_id: "app_solo")
+
+      expect { builder.plan_change(to: :solo, from: app_store) { "Solo" } }.to raise_error(ArgumentError, /current plan/)
+    end
+
     it "refuses a plan that is not in Tillbell.plans" do
       expect { builder.plan_change(to: :gold, from: current) { "Gold" } }.to raise_error(ArgumentError, /not in Tillbell.plans/)
     end

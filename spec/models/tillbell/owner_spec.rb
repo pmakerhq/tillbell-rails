@@ -142,6 +142,17 @@ RSpec.describe Tillbell::Owner do
       expect(user.owned_store_subscription).to be_present
     end
 
+    it "does not let a stale App Store subscription hide one that pays" do
+      Tillbell.apple.stale_after = 16.days
+      paying = stripe
+      stale = app_store(expires_at: 20.days.ago, purchased_at: 1.second.from_now)
+      stale.update!(status: "active", ends_at: nil)
+
+      expect(user.current_subscription).to eq(paying)
+    ensure
+      Tillbell.apple.stale_after = nil
+    end
+
     it "lists the App Store subscriptions only the customer can stop" do
       play
       renewing = app_store

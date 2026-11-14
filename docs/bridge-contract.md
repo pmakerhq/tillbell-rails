@@ -41,11 +41,12 @@ Messages use the [Hotwire Native bridge](https://native.hotwired.dev/overview/br
 - **Pending purchases** must be enabled (`enablePendingPurchases`), as Play requires.
 - **Always reply** to `products`, `purchase` and `restore`, including on errors, so the page
   never waits forever.
-- **Only your pages may buy.** The app can be configured with the hosts of its pages
-  (`allowedHosts` on iOS and Android). The host of `metadata.url` must then be one of them,
+- **Only your pages may buy.** On iOS the app can be configured with the hosts of its pages
+  (`TillbellComponent.allowedHosts`). The host of `metadata.url` must then be one of them,
   compared without case: any other message, or one without a readable URL, gets an `error`
   reply with a `message`, and `manage` is ignored. Without allowed hosts, every page is
-  accepted.
+  accepted. On Android, Hotwire Native (1.4 and later) already drops messages from frames and
+  from origins its `originTrustPolicy` does not trust.
 
 ## Messages
 

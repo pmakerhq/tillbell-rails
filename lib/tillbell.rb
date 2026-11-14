@@ -137,22 +137,32 @@ module Tillbell
     end
 
     # Sets the catalog of +plans+ from hashes with +name+, +product_id+ and optionally
-    # +base_plan_id+ (or from +Tillbell::Plan+ objects).
+    # +base_plan_id+ and +app_store_product_id+ (or from +Tillbell::Plan+ objects).
+    #
+    # A Google Play product with several base plans is several plans, while each App Store
+    # product is one duration: such plans do not default their App Store product id to the
+    # shared Google Play one. Give them their own +app_store_product_id+.
     def plans=(list)
-      @@plans = list.map do |plan|
-        next plan if plan.is_a?(Plan)
+      built = list.map do |plan|
+        next [ plan, false ] if plan.is_a?(Plan)
         raise ArgumentError, "a plan is a hash with :name and :product_id or :app_store_product_id, got #{plan.inspect}" unless plan.respond_to?(:to_h) && !plan.nil?
 
-        Plan.new(**plan.to_h.symbolize_keys)
+        attributes = plan.to_h.symbolize_keys
+        [ Plan.new(**attributes), !attributes.key?(:app_store_product_id) ]
+      end
+      shared = built.filter_map { |plan, _defaulted| plan.app_store_product_id }.tally.select { |_id, count| count > 1 }.keys
+      @@plans = built.map do |plan, defaulted|
+        defaulted && shared.include?(plan.app_store_product_id) ? plan.with(app_store_product_id: nil) : plan
       end.freeze
     end
 
-    # Finds a plan of +plans+ by +name+ (a symbol or string), by App Store product id, or by
-    # Google ids. With a +base_plan_id+ that no plan has, falls back to the product's plan when
-    # it has only one.
+    # Finds a plan of +plans+ by +name+ (a symbol or string), by App Store product id (nil when
+    # several plans share it), or by Google ids. With a +base_plan_id+ that no plan has, falls
+    # back to the product's plan when it has only one.
     def plan(name = nil, product_id: nil, base_plan_id: nil, app_store_product_id: nil)
       return plans.find { |plan| plan.name == name.to_sym } if name
-      return plans.find { |plan| plan.app_store_product_id == app_store_product_id } if app_store_product_id
+      return plans.select { |plan| plan.app_store_product_id == app_store_product_id }.then { |matches| matches.first if matches.one? } if app_store_product_id
+      return if product_id.blank?
 
       matches = plans.select { |plan| plan.product_id == product_id }
       matches.find { |plan| plan.base_plan_id == base_plan_id } || (matches.first if matches.one?)

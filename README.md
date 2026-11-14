@@ -206,7 +206,7 @@ The values marked "credentials" below come from Google: the [Google Play setup](
 | `google.pubsub_audience` | endpoint URL | Audience of the Pub/Sub OIDC token. Set it when a proxy changes the URL Rails sees. |
 | `current_owner` | `-> { current_user }` | Returns who is buying. Evaluated in the controller and in the view, so any helper available there works (`Current.user`, `current_account`, ...). |
 | `parent_controller` | `"ApplicationController"` | Controller the purchase endpoint inherits from, to reuse your authentication, CSRF protection and error handling. |
-| `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. Add `app_store_product_id:` when the App Store product has another id than the Google Play one; an App Store-only plan has no `product_id`. `tillbell:check` verifies the Google Play ones, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
+| `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. Add `app_store_product_id:` when the App Store product has another id than the Google Play one, or when several plans share a Google Play product (each App Store product is one duration, so they get no default); an App Store-only plan has no `product_id`. `tillbell:check` verifies the Google Play ones, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
 | `subscription_name` | `->(product_id:, base_plan_id:) { Pay.default_product_name }` | Pay subscription `name` of a Google Play product, as used by `subscribed?(name:)`. |
 
 ## The paywall
@@ -232,7 +232,7 @@ The markup is unstyled and every builder method accepts HTML attributes (`class:
 
 | Builder method | Renders |
 |---|---|
-| `plan_option(product_id:, base_plan_id: nil, checked: false, replacing: nil, replacement_mode: nil)` | A radio button wrapped in a label with the block's content. `plan_option(plan: :family)` takes a plan of `config.plans` instead, with the ids of the store of the app showing the page. |
+| `plan_option(product_id: nil, base_plan_id: nil, plan: nil, checked: false, replacing: nil, replacement_mode: nil)` | A radio button wrapped in a label with the block's content. `plan_option(plan: :family)` takes a plan of `config.plans` instead of ids, with the ids of the store of the app showing the page; a plan that store does not sell renders nothing. |
 | `price(placeholder = "")` | Where the price localized by Google Play is written. Use it inside `plan_option`. |
 | `submit(text)` | Starts the purchase of the checked plan. |
 | `restore(text)` | Records again the purchases Google Play knows for the device, e.g. after a reinstall. |
@@ -648,7 +648,7 @@ How App Store subscriptions differ:
 - `processor_id` is the `originalTransactionId`, which stays the same across renewals and plan changes.
 - The Pay customer (`Pay::AppStore::Customer`) shares its `processor_id` with the owner's Google Play customer: the paywall sends one account id to both apps, passed to StoreKit as the `appAccountToken`.
 - Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
-- Sandbox purchases (Xcode, TestFlight, App Review) are accepted, so App Review can buy against your production server; `sandbox?` tells them apart, for example to keep them out of revenue reports.
+- Sandbox purchases (TestFlight, App Review) are accepted, so App Review can buy against your production server (Xcode StoreKit Testing ones only in development, see above); `sandbox?` tells them apart, for example to keep them out of revenue reports.
 - `price_amount` and `price_currency` give what Apple charged for the last transaction (an introductory offer included), as for Google Play.
 - Family-shared subscriptions are not recorded: they belong to the family member who bought them.
 - Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account (`owner.subscriptions_to_cancel_in_store` lists them). Only Apple refunds, at `Tillbell::AppStore::REFUND_URL`.

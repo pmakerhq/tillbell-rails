@@ -8,6 +8,9 @@ module Tillbell
   class Engine < ::Rails::Engine
     isolate_namespace Tillbell
 
+    # Display names of the stores, by Pay processor.
+    STORE_NAMES = { "google_play" => "Google Play", "app_store" => "App Store" }.freeze
+
     # Real-time developer notifications are verified, stored and queued by Pay (see
     # Tillbell::NotificationsController). Once Pay's job processes one, Tillbell re-reads
     # the subscription from Google.
@@ -18,9 +21,6 @@ module Tillbell
 
     # Pay defines +stripe?+, +paddle_billing?+ and the matching scopes for its own
     # processors only; this adds the same pair for Google Play and the App Store.
-    # Display names of the stores, by Pay processor.
-    STORE_NAMES = { "google_play" => "Google Play", "app_store" => "App Store" }.freeze
-
     initializer "tillbell.processor_helpers" do
       ActiveSupport.on_load(:pay_customer) do
         scope :google_play, -> { where(processor: "google_play") }

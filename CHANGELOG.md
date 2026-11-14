@@ -24,8 +24,8 @@ All notable changes to this project are documented in this file. The format foll
 - `config.apple.stale_after`: an App Store subscription stops giving access that long after the
   end of a period no notification renewed (`stale?`).
 - `price_amount` and `price_currency` on App Store subscriptions.
-- `app_store_product_id` on plans (the Google Play `product_id` by default; an App Store-only
-  plan has no `product_id`), `paywall.plan_option(plan:)` with the ids of the app's store, and
+- `app_store_product_id` on plans (the Google Play `product_id` by default, unless several plans
+  share that product; an App Store-only plan has no `product_id`), `paywall.plan_option(plan:)` with the ids of the app's store, and
   `paywall.plan_change` from an App Store subscription.
 - The `subscription_reactivated` event, when a customer takes a cancellation back before the end
   of the period.
@@ -34,9 +34,9 @@ All notable changes to this project are documented in this file. The format foll
 
 - The paywall controller keeps the last store prices on the device and shows them while the
   store answers. Copy the new `tillbell_controller.js` from the generator template into your app.
-- Bridge contract: native components can be limited to the hosts of the app's pages
-  (`allowedHosts` in tillbell-ios and tillbell-android); a message from another host gets an
-  `error` reply.
+- Bridge contract: the iOS component can be limited to the hosts of the app's pages
+  (`allowedHosts` in tillbell-ios); a message from another host gets an `error` reply. On
+  Android, Hotwire Native's `originTrustPolicy` already does it.
 
 ### Changed
 
