@@ -81,9 +81,45 @@ RSpec.describe Pay::AppStore::Subscription do
   it "finds its plan by App Store product id and tells sandbox purchases apart" do
     Tillbell.plans = [ { name: :monthly, product_id: "premium.monthly" } ]
 
-    expect(sync).to have_attributes(plan: Tillbell.plan(:monthly), base_plan_id: nil, sandbox?: true)
+    expect(sync).to have_attributes(plan: Tillbell.plan(:monthly), base_plan_id: nil, sandbox?: false)
+    expect(sync(environment: "Sandbox")).to have_attributes(sandbox?: true)
+    expect(sync(environment: "Xcode")).to have_attributes(sandbox?: true)
   ensure
     Tillbell.plans = []
+  end
+
+  it "finds a plan whose App Store product differs from the Google Play one" do
+    Tillbell.plans = [ { name: :family, product_id: "family", base_plan_id: "monthly", app_store_product_id: "app.family.monthly" } ]
+
+    expect(sync(product_id: "app.family.monthly").plan).to eq(Tillbell.plan(:family))
+  ensure
+    Tillbell.plans = []
+  end
+
+  it "reads the price Apple charged, in thousandths" do
+    expect(sync(price: "12.99", currency: "EUR")).to have_attributes(price_amount: BigDecimal("12.99"), price_currency: "EUR")
+    expect(sync).to have_attributes(price_amount: nil, price_currency: nil)
+  end
+
+  it "stops giving access once no notification came long after the end of the period, when configured" do
+    subscription = sync(expires_at: 20.days.ago, purchased_at: 1.second.from_now)
+    subscription.update!(status: "active", ends_at: nil)
+    expect(subscription.grants_access?).to be(true)
+
+    Tillbell.apple.stale_after = 16.days
+    expect(subscription).to have_attributes(stale?: true, grants_access?: false)
+    expect(sync(expires_at: 1.week.from_now, purchased_at: 2.seconds.from_now).grants_access?).to be(true)
+  ensure
+    Tillbell.apple.stale_after = nil
+  end
+
+  it "tells a cancellation taken back before the end of the period" do
+    freeze_time
+    sync(app_store_renewal_info(auto_renew: false))
+
+    events = tillbell_events { sync(app_store_renewal_info(auto_renew: true)) }
+
+    expect(events.map(&:first)).to eq(%i[subscription_updated subscription_reactivated])
   end
 
   it "never fails to delete an owner: only the customer can cancel in the App Store" do

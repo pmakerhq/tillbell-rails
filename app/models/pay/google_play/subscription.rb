@@ -207,6 +207,13 @@ module Pay
         status == "paused"
       end
 
+      # True for a purchase made by a license tester, which Google does not charge: Google's
+      # answer then carries +testPurchase+. Check it to keep test purchases out of revenue
+      # reports and conversion events.
+      def sandbox?
+        google_object.key?(:test_purchase)
+      end
+
       # True while Google still counts the purchase as the customer's: buying the same product
       # again would be answered +ALREADY_OWNED+, so offer +manage_url+ rather than a paywall. It
       # covers states that give no access (see +grants_access?+): a paused subscription resumes
@@ -338,11 +345,13 @@ module Pay
         # Events that say what happened to an existing subscription, deduced from its pending
         # changes: +:plan_changed+ (the product or base plan changed on the same purchase, e.g. a
         # deferred downgrade that took effect), +:subscription_renewed+, +:payment_failed+ (the
-        # first failure only: the move from the grace period to the hold is not a second one) and
-        # +:payment_recovered+. A replacement purchase is announced by +Subscription.sync+.
+        # first failure only: the move from the grace period to the hold is not a second one),
+        # +:payment_recovered+ and +:subscription_reactivated+ (a cancellation taken back before the
+        # end of the period). A replacement purchase is announced by +Subscription.sync+.
         def detail_events
           events = []
           events << :plan_changed if processor_plan_changed? || base_plan_id_changed?
+          events << :subscription_reactivated if status == "active" && !status_changed? && ends_at_changed? && ends_at.nil?
           events << :subscription_renewed if renewed?
           events << :payment_failed if PAYMENT_PROBLEM_STATES.include?(subscription_state) && !PAYMENT_PROBLEM_STATES.include?(previous_state)
           events << :payment_recovered if subscription_state == ACTIVE_STATE && PAYMENT_PROBLEM_STATES.include?(previous_state)

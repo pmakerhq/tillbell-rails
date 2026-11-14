@@ -73,6 +73,23 @@ RSpec.describe "App Store purchases and notifications" do
     end
   end
 
+  describe "Xcode StoreKit Testing" do
+    after { Tillbell.apple.allow_xcode_transactions = nil }
+
+    it "records a purchase Xcode signed when allowed, as the iOS app posts it" do
+      Tillbell.apple.allow_xcode_transactions = true
+      # Xcode signs with its own certificate, given in x5c like Apple's chain.
+      key = OpenSSL::PKey::EC.generate("prime256v1")
+      certificate = AppStoreHelpers.certificate("StoreKit Testing in Xcode", key)
+      jws = JWT.encode(app_store_transaction(account_id: account_id, environment: "Xcode"), key, "ES256", { x5c: [ Base64.strict_encode64(certificate.to_der) ] })
+
+      post_purchase(jws)
+
+      expect(response.parsed_body).to include("status" => "verified", "active" => true)
+      expect(Pay::AppStore::Subscription.sole).to be_sandbox
+    end
+  end
+
   describe "POST /tillbell/notifications/app_store" do
     let(:transaction) { app_store_transaction(account_id: account_id) }
 

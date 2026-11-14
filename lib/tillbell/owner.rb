@@ -25,6 +25,36 @@ module Tillbell
       google_play_subscription&.on_hold? || false
     end
 
+    # The most relevant subscription bought in an app store (Google Play or the App Store), or
+    # nil: the most recent one that is active or paused, otherwise the most recent one.
+    def store_subscription
+      subscriptions = store_subscriptions
+      subscriptions.active_or_paused.first || subscriptions.first
+    end
+
+    # True when the store subscription (see +store_subscription+) is on hold: the payment failed
+    # after the store's grace period and access is suspended while the store retries. The
+    # customer fixes it in the store (+manage_url+); subscribing again elsewhere would bill
+    # twice if the retry succeeds.
+    def store_on_hold?
+      store_subscription&.on_hold? || false
+    end
+
+    # The most recent store subscription the store still counts as the customer's, with or
+    # without access (see +owned?+), or nil. Buying it again would be refused by the store, and
+    # buying another way (a web checkout) would bill twice: send the customer to its
+    # +manage_url+ instead.
+    def owned_store_subscription
+      store_subscriptions.find(&:owned?)
+    end
+
+    # The App Store subscriptions that will still renew: only the customer can stop them, in
+    # the App Store, so +cancel_billing_subscriptions!+ leaves them unchanged. Show their
+    # +manage_url+ before closing the account.
+    def subscriptions_to_cancel_in_store
+      billing_subscriptions.select { |subscription| subscription.app_store? && subscription.ends_at.nil? }
+    end
+
     # The subscription to show and to decide access from, whatever its processor: the one
     # that renews, then one that is canceled but still running, then one whose payment is
     # being retried or that is paused; the most recent breaks a tie. Nil without any.
@@ -52,10 +82,18 @@ module Tillbell
     end
 
     private
+      # Subscriptions of the owner's store customers, the most recent first.
+      def store_subscriptions
+        pay_subscriptions.merge(Pay::Customer.active).where(pay_customers: { processor: %w[google_play app_store] }).order(created_at: :desc)
+      end
+
+      # An App Store subscription that went stale (see Pay::AppStore::Subscription#stale?) is
+      # still "active" but must not hide one that grants access.
       def subscription_standing(subscription)
-        if subscription.active? && !subscription.on_grace_period? then 0
-        elsif subscription.active? then 1
-        elsif subscription.billing? then 2
+        active = subscription.active? && !subscription.try(:stale?)
+        if active && !subscription.on_grace_period? then 0
+        elsif active then 1
+        elsif subscription.billing? && !subscription.try(:stale?) then 2
         else 3
         end
       end

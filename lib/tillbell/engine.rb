@@ -8,6 +8,9 @@ module Tillbell
   class Engine < ::Rails::Engine
     isolate_namespace Tillbell
 
+    # Display names of the stores, by Pay processor.
+    STORE_NAMES = { "google_play" => "Google Play", "app_store" => "App Store" }.freeze
+
     # Real-time developer notifications are verified, stored and queued by Pay (see
     # Tillbell::NotificationsController). Once Pay's job processes one, Tillbell re-reads
     # the subscription from Google.
@@ -29,6 +32,12 @@ module Tillbell
 
         def app_store?
           processor == "app_store"
+        end
+
+        # True for a customer of an app store (Google Play or the App Store), whose
+        # subscriptions are managed in the store rather than by the app.
+        def store?
+          google_play? || app_store?
         end
       end
 
@@ -65,6 +74,35 @@ module Tillbell
         # True for a subscription bought with the App Store.
         def app_store?
           customer.processor == "app_store"
+        end
+
+        # True for a subscription bought in an app store (Google Play or the App Store). The
+        # customer manages it in the store (+manage_url+): the server can neither change its
+        # plan nor, for the App Store, stop it.
+        def store?
+          customer.store?
+        end
+
+        # The name of the store the subscription was bought in, "Google Play" or "App Store",
+        # for admin pages and internal alerts; nil for any other processor. Brand names, so
+        # they are not translated.
+        def store_name
+          STORE_NAMES[customer.processor]
+        end
+
+        # True when the subscription gives access and will renew by itself: +grants_access?+,
+        # and not canceled with an end date still to come (Pay's +on_grace_period?+). Use it to
+        # warn a customer who is about to close their account or switch plans while a renewal
+        # is planned.
+        def renewing?
+          grants_access? && !on_grace_period?
+        end
+
+        # True for a test purchase that costs nothing. Always false here; store subscriptions
+        # answer from what the store says (see Pay::AppStore::Subscription#sandbox? and
+        # Pay::GooglePlay::Subscription#sandbox?).
+        def sandbox?
+          false
         end
       end
     end

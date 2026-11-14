@@ -109,6 +109,7 @@ module Pay
         events = [ event_for_changes ]
         if persisted? && !revoked?
           events << :plan_changed if processor_plan_changed?
+          events << :subscription_reactivated if reactivated?
           events << :subscription_renewed if status == "active" && !processor_plan_changed? && current_period_end_changed? && current_period_end_was.present? && current_period_end > current_period_end_was
           # The store accessor's +_was+ answers nil for a value that did not change.
           was_retrying = billing_retry_changed? ? billing_retry_was : billing_retry
@@ -123,11 +124,50 @@ module Pay
         revoked_at.present?
       end
 
-      # True for a purchase made with a sandbox Apple Account (Xcode, TestFlight, App Review),
-      # which costs nothing. Tillbell accepts them so App Review and testers can buy; check this
-      # to keep them out of revenue reports, or to refuse them.
+      # True for a purchase made with a sandbox Apple Account (TestFlight, App Review) or in
+      # Xcode's StoreKit Testing, which costs nothing. Tillbell accepts them so App Review and
+      # testers can buy; check this to keep them out of revenue reports, or to refuse them.
       def sandbox?
-        environment == "Sandbox"
+        environment == "Sandbox" || environment == "Xcode"
+      end
+
+      # False once the period ended more than +config.apple.stale_after+ ago (see +stale?+).
+      def grants_access?
+        super && !stale?
+      end
+
+      # True when the period ended more than +config.apple.stale_after+ ago and no notification
+      # renewed or ended the subscription since: App Store Server Notifications stopped reaching
+      # the app, and the last known state can no longer be trusted. Always false without
+      # +stale_after+.
+      def stale?
+        stale_after = Tillbell.apple.stale_after
+        stale_after.present? && current_period_end.present? && current_period_end < stale_after.ago
+      end
+
+      # Price the customer paid for the last transaction, in the units of its currency (a
+      # +BigDecimal+: 12.99 euros), or nil when Apple gave none. Apple sends it in thousandths.
+      # It is what was charged for that period, an introductory offer included. Meant for
+      # analytics and conversion events, like Pay::GooglePlay::Subscription#price_amount.
+      def price_amount
+        price = object&.dig("price")
+        BigDecimal(price.to_s) / 1000 if price
+      end
+
+      # ISO 4217 code of the currency of +price_amount+ ("EUR"), or nil.
+      def price_currency
+        object&.dig("currency")
+      end
+
+      # The App Store never replaces a subscription with a new purchase: a plan change keeps the
+      # same +originalTransactionId+. Defined so code written for both stores can ask.
+      def replacement?
+        false
+      end
+
+      # See +replacement?+.
+      def replaced?
+        false
       end
 
       # The App Store has no base plans: each duration is its own product.
@@ -137,7 +177,7 @@ module Pay
 
       # The plan of +Tillbell.plans+ whose +product_id+ is this App Store product, or nil.
       def plan
-        Tillbell.plan(product_id: processor_plan)
+        Tillbell.plan(app_store_product_id: processor_plan)
       end
 
       # The App Store has no pause.
@@ -202,6 +242,12 @@ module Pay
       end
 
       private
+        # True when the pending changes take back a cancellation before it took effect: the end
+        # date goes away while the subscription stays active (not an expired one bought again).
+        def reactivated?
+          status == "active" && !status_changed? && ends_at_changed? && ends_at.nil?
+        end
+
         # Pay status from what Apple last said, at the time of the sync. Apple notifies every
         # change (renewal, expiry, billing retry, refund), so the status stays current as long
         # as App Store Server Notifications reach the app.

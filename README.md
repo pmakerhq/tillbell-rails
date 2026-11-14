@@ -206,7 +206,7 @@ The values marked "credentials" below come from Google: the [Google Play setup](
 | `google.pubsub_audience` | endpoint URL | Audience of the Pub/Sub OIDC token. Set it when a proxy changes the URL Rails sees. |
 | `current_owner` | `-> { current_user }` | Returns who is buying. Evaluated in the controller and in the view, so any helper available there works (`Current.user`, `current_account`, ...). |
 | `parent_controller` | `"ApplicationController"` | Controller the purchase endpoint inherits from, to reuse your authentication, CSRF protection and error handling. |
-| `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. `tillbell:check` verifies them, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
+| `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. Add `app_store_product_id:` when the App Store product has another id than the Google Play one, or when several plans share a Google Play product (each App Store product is one duration, so they get no default); an App Store-only plan has no `product_id`. `tillbell:check` verifies the Google Play ones, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
 | `subscription_name` | `->(product_id:, base_plan_id:) { Pay.default_product_name }` | Pay subscription `name` of a Google Play product, as used by `subscribed?(name:)`. |
 
 ## The paywall
@@ -232,7 +232,7 @@ The markup is unstyled and every builder method accepts HTML attributes (`class:
 
 | Builder method | Renders |
 |---|---|
-| `plan_option(product_id:, base_plan_id: nil, checked: false, replacing: nil, replacement_mode: nil)` | A radio button wrapped in a label with the block's content. |
+| `plan_option(product_id: nil, base_plan_id: nil, plan: nil, checked: false, replacing: nil, replacement_mode: nil)` | A radio button wrapped in a label with the block's content. `plan_option(plan: :family)` takes a plan of `config.plans` instead of ids, with the ids of the store of the app showing the page; a plan that store does not sell renders nothing. |
 | `price(placeholder = "")` | Where the price localized by Google Play is written. Use it inside `plan_option`. |
 | `submit(text)` | Starts the purchase of the checked plan. |
 | `restore(text)` | Records again the purchases Google Play knows for the device, e.g. after a reinstall. |
@@ -340,7 +340,7 @@ Tillbell.plan(:family)                                # by name, or Tillbell.pla
 Tillbell.replacement_mode(from: :solo, to: :family)   # => "CHARGE_PRORATED_PRICE" (upgrade); a downgrade gives "DEFERRED"
 ```
 
-A plan change from the settings page is then one option in a paywall:
+A plan change from the settings page is then one option in a paywall. `from` may be a Google Play or an App Store subscription: on the App Store the option is the target product alone, and Apple replaces the subscription of the same group by itself.
 
 ```erb
 <%= tillbell_paywall(success_url: settings_path) do |paywall| %>
@@ -359,6 +359,9 @@ A plan change from the settings page is then one option in a paywall:
 |---|---|
 | `google_play_subscription` | The Google Play subscription, whatever the default processor. |
 | `google_play_on_hold?` | True when Google suspended the subscription for a failed payment: send the customer to `manage_url` rather than to a second subscription, which would bill twice if Google's retry succeeds. |
+| `store_subscription`, `store_on_hold?` | The same for either store: the most relevant Google Play or App Store subscription, and whether the store suspended it. |
+| `owned_store_subscription` | The store subscription the store still counts as the customer's, with or without access (`owned?`): offer its `manage_url`, not a second purchase on the web, which would bill twice. |
+| `subscriptions_to_cancel_in_store` | App Store subscriptions that still renew. Only the customer can stop them, so show their `manage_url` before closing the account. |
 | `current_subscription` | The subscription to show and decide access from: the one that renews, then one that is canceled but running, then one whose payment is retried or that is paused; the most recent breaks a tie. |
 | `billing_subscriptions` | What still bills or resumes by itself (`subscription.billing?`), Google Play first. |
 | `cancel_billing_subscriptions!` | Cancels them: call it before closing or deleting an account. |
@@ -371,7 +374,15 @@ def subscribed? = !!current_user.current_subscription&.grants_access?
 
 A customer can have a Stripe subscription and a Google Play one (a web customer who later subscribes in the app, or the reverse). `Pay::GooglePlay::Customer` is never the owner's default payment processor, so `owner.payment_processor` does not see Google Play subscriptions: look at `owner.pay_subscriptions`, or at the Google Play customer (`owner.pay_customers.google_play.first`), to decide who has access.
 
-Pay only knows its own processors, so Tillbell adds `google_play?` to customers and subscriptions, and a `google_play` scope next to Pay's `stripe` one (`Pay::Subscription.google_play`).
+Pay only knows its own processors, so Tillbell adds `google_play?` and `app_store?` to customers and subscriptions, and matching scopes next to Pay's `stripe` one (`Pay::Subscription.google_play`). Code that does not care which store adds these, on every Pay subscription:
+
+| Method | Returns |
+|---|---|
+| `store?`, `store_name` | Whether it was bought in a store, and which one: `"Google Play"`, `"App Store"`, or nil for another processor. |
+| `renewing?` | Gives access and will renew by itself (not canceled with an end date to come). |
+| `sandbox?` | A test purchase that costs nothing: an App Store sandbox purchase, or a Google Play license tester's. False for other processors. Keep them out of revenue reports and conversion events. |
+
+`Tillbell.store(request.user_agent)` (`tillbell_store` in views) tells which store the Hotwire Native app showing the page buys from: `:app_store`, `:google_play`, or nil in a browser. Unlike `tillbell_native?` it does not need the `tillbell` component, so it also answers for app versions that cannot buy yet, which is what store rules need, e.g. no link to a web checkout in the iOS app.
 
 `subscription.cancel` stops the renewal through the Google Play Developer API; the customer keeps access until the end of the paid period. Google can only end a subscription immediately by refunding it, which Tillbell never does on its own, so `cancel_now!` (which Pay calls when an owner is destroyed) also just stops the renewal. Google answers 410 for a purchase token that expired more than 60 days ago: a subscription still stored as active (a missed notification) is then recorded as ended, with a `subscription_expired` event, instead of failing the deletion of its owner. Any other error is raised, a 404 from a wrong package name for example: the subscription may still be billing. A subscription ended or already canceled is left alone, and one that waits for a deferred plan change is cancelled like any other: whether it is renewing comes from Google's subscription state, not from the entitlement about to end. `swap`, `pause` and `resume` raise `Tillbell::Error`: plan changes go through the paywall, and the rest happens in the Play Store.
 
@@ -394,6 +405,7 @@ Tillbell.configure do |config|
   config.on(:payment_recovered)     { |subscription| }  # the payment went through after a failure
   config.on(:plan_changed)          { |subscription| }  # the customer is now on another product or base plan; subscription.replaced_subscription is the previous purchase, if any
   config.on(:subscription_canceled) { |subscription| }  # will not renew; access until ends_at
+  config.on(:subscription_reactivated) { |subscription| }  # the customer took a cancellation back before ends_at (also fires subscription_updated)
   config.on(:subscription_expired)  { |subscription| }
   config.on(:subscription_revoked)  { |subscription| }  # refunded or charged back
   config.on(:purchase_rejected)     { |details| }       # { owner:, purchase_token: } posted by another account
@@ -609,29 +621,56 @@ The iOS app ([tillbell-ios](https://github.com/pmakerhq/tillbell-ios)) talks to 
 
 3. **Point the notifications to your app.** App Store Connect › your app › *App Information* › *App Store Server Notifications*: set both the production and the sandbox URL to `https://<your host>/tillbell/notifications/app_store`, version 2. Renewals, billing retries, expiries, refunds and Ask to Buy approvals arrive there; without them, a subscription is never renewed in your database.
 
-4. **Name App Store products in the paywall on iOS.** The App Store has no base plans: each duration is its own product. Render the plans of the platform the request comes from, with `base_plan_id` left out on iOS:
+4. **Name App Store products in the paywall on iOS.** The App Store has no base plans: each duration is its own product. Declare the App Store product of each plan and let the paywall pick the ids of the store of the app showing the page:
 
-   ```erb
-   <% if request.user_agent.to_s.include?("iOS") %>
-     <%= paywall.plan_option(product_id: "premium.monthly") { paywall.price } %>
-   <% else %>
-     <%= paywall.plan_option(product_id: "premium", base_plan_id: "monthly") { paywall.price } %>
-   <% end %>
+   ```ruby
+   config.plans = [{ name: :monthly, product_id: "premium", base_plan_id: "monthly", app_store_product_id: "premium.monthly" }]
    ```
 
-   A plan change needs nothing more on iOS: the App Store replaces the subscription of the same group by itself.
+   ```erb
+   <%= paywall.plan_option(plan: :monthly) { paywall.price } %>
+   ```
 
-5. **Test** in the simulator with a StoreKit configuration file, then on a device with a sandbox account (*Settings* › *Developer* › *Sandbox Apple Account*). Transactions signed by Xcode's StoreKit configuration are not signed by Apple: the purchase endpoint answers `invalid` for them, as it should.
+   A plan change needs nothing more on iOS: the App Store replaces the subscription of the same group by itself, and `paywall.plan_change` knows it.
+
+5. **Test** in the simulator with a StoreKit configuration file, then on a device with a sandbox account (*Settings* › *Developer* › *Sandbox Apple Account*). Xcode signs StoreKit Testing transactions itself, not with Apple's chain, so the purchase endpoint answers `invalid` for them unless you allow them in development:
+
+   ```ruby
+   config.apple.allow_xcode_transactions = Rails.env.development?
+   ```
+
+   They are then accepted without checking their signature, as Apple's own server libraries do for the Xcode environment, still for your bundle id and the signed-in owner's account id. Tillbell ignores the setting outside the development and test environments: anyone could forge an unsigned transaction.
+
+6. **Decide what happens if notifications stop.** A renewing subscription only moves on when Apple notifies the renewal. If notifications stop reaching your server, the last state stays, access included. `config.apple.stale_after = 16.days` (at least your billing grace period) makes `grants_access?` false that long after the end of a period no notification renewed; `stale?` tells such subscriptions.
 
 How App Store subscriptions differ:
 
 - `processor_id` is the `originalTransactionId`, which stays the same across renewals and plan changes.
 - The Pay customer (`Pay::AppStore::Customer`) shares its `processor_id` with the owner's Google Play customer: the paywall sends one account id to both apps, passed to StoreKit as the `appAccountToken`.
 - Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
-- Sandbox purchases (Xcode, TestFlight, App Review) are accepted, so App Review can buy against your production server; `sandbox?` tells them apart, for example to keep them out of revenue reports.
+- Sandbox purchases (TestFlight, App Review) are accepted, so App Review can buy against your production server (Xcode StoreKit Testing ones only in development, see above); `sandbox?` tells them apart, for example to keep them out of revenue reports.
+- `price_amount` and `price_currency` give what Apple charged for the last transaction (an introductory offer included), as for Google Play.
 - Family-shared subscriptions are not recorded: they belong to the family member who bought them.
-- Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account.
+- Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account (`owner.subscriptions_to_cancel_in_store` lists them). Only Apple refunds, at `Tillbell::AppStore::REFUND_URL`.
+- `replacement?` and `replaced?` are always false: a plan change keeps the same `originalTransactionId`.
 - An Ask to Buy purchase is answered `pending` without a token: the paywall shows its pending message, and the subscription is recorded from Apple's notification once a parent approves it.
+
+## Testing your app
+
+`require "tillbell/test_helpers"` and include `Tillbell::TestHelpers` in your tests to create store subscriptions without Apple's signature or a call to Google. They go through the same code as a real purchase, events included:
+
+```ruby
+# spec/rails_helper.rb
+require "tillbell/test_helpers"
+RSpec.configure { |config| config.include Tillbell::TestHelpers }
+
+create_app_store_subscription(user, product_id: "premium.monthly", environment: "Sandbox")
+create_app_store_subscription(user, renewal_info: app_store_renewal_info(billing_retry: true), expires_at: 1.hour.ago)
+create_google_play_subscription(user, state: "SUBSCRIPTION_STATE_ON_HOLD")
+tillbell_events { ... }   # => [[:subscription_created, subscription], ...]
+```
+
+`app_store_transaction`, `app_store_renewal_info` and `google_subscription` build the payloads alone, to pass to `Pay::AppStore::Subscription.sync` or to stub `Tillbell::GooglePlay.subscription`.
 
 ## Security
 

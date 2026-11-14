@@ -40,6 +40,26 @@ RSpec.describe "Tillbell plans" do
     end
   end
 
+  it "takes an App Store product id, the Google Play one by default, and needs one of the two" do
+    expect(Tillbell.plan(:solo).app_store_product_id).to eq("app_solo")
+    Tillbell.plans = [ { name: :pro, app_store_product_id: "app.pro.monthly" } ]
+
+    expect(Tillbell.plan(app_store_product_id: "app.pro.monthly").name).to eq(:pro)
+    expect(Tillbell.plan(:pro).product_for(:app_store)).to eq(product_id: "app.pro.monthly", base_plan_id: nil)
+    expect(Tillbell::Check.new.instance_variable_get(:@plans)).to be_empty
+    expect { Tillbell.plans = [ { name: :none } ] }.to raise_error(ArgumentError, /needs a product_id/)
+  end
+
+  it "gives no default App Store product to plans that share a Google Play product, and finds none when ambiguous" do
+    expect(Tillbell.plan(:family).app_store_product_id).to be_nil
+    expect(Tillbell.plan(:family_yearly).app_store_product_id).to be_nil
+    expect(Tillbell.plan(app_store_product_id: "app_family")).to be_nil
+    expect(Tillbell.plan).to be_nil
+
+    Tillbell.plans = [ { name: :a, product_id: "p", base_plan_id: "m", app_store_product_id: "x" }, { name: :b, product_id: "q", app_store_product_id: "x" } ]
+    expect(Tillbell.plan(app_store_product_id: "x")).to be_nil
+  end
+
   it "is what tillbell:check verifies when no plan is given" do
     expect(Tillbell::Check.new.instance_variable_get(:@plans)).to eq(
       [ { product_id: "app_solo", base_plan_id: "monthly" }, { product_id: "app_family", base_plan_id: "monthly" },

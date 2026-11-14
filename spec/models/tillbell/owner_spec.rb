@@ -113,4 +113,54 @@ RSpec.describe Tillbell::Owner do
       expect(cancelled).to match_array(subscriptions.map(&:id))
     end
   end
+
+  describe "store subscriptions, whatever the store" do
+    let(:account_id) { google_customer.processor_id }
+
+    def app_store(renewal_info = nil, **transaction)
+      Pay::AppStore::Subscription.sync(app_store_transaction(account_id: account_id, **transaction), renewal_info)
+    end
+
+    it "finds the active one first, then the most recent one, never another processor's" do
+      stripe
+      expect(user.store_subscription).to be_nil
+
+      expired = play(status: "canceled", ends_at: 1.day.ago, data: { subscription_state: "SUBSCRIPTION_STATE_EXPIRED" })
+      expect(user.store_subscription).to eq(expired)
+
+      active = app_store
+      expect(user.store_subscription).to eq(active)
+      expect(user.owned_store_subscription).to eq(active)
+    end
+
+    it "tells an App Store subscription on hold" do
+      expect(user.store_on_hold?).to be(false)
+
+      app_store(app_store_renewal_info(billing_retry: true), expires_at: 1.hour.ago)
+
+      expect(user.store_on_hold?).to be(true)
+      expect(user.owned_store_subscription).to be_present
+    end
+
+    it "does not let a stale App Store subscription hide one that pays" do
+      Tillbell.apple.stale_after = 16.days
+      paying = stripe
+      stale = app_store(expires_at: 20.days.ago, purchased_at: 1.second.from_now)
+      stale.update!(status: "active", ends_at: nil)
+
+      expect(user.current_subscription).to eq(paying)
+    ensure
+      Tillbell.apple.stale_after = nil
+    end
+
+    it "lists the App Store subscriptions only the customer can stop" do
+      play
+      renewing = app_store
+
+      expect(user.subscriptions_to_cancel_in_store).to eq([ renewing ])
+
+      app_store(app_store_renewal_info(auto_renew: false))
+      expect(user.subscriptions_to_cancel_in_store).to be_empty
+    end
+  end
 end

@@ -13,6 +13,16 @@ module Tillbell
       Tillbell.native?(request.user_agent)
     end
 
+    # The store of the native app showing the page (+:app_store+, +:google_play+) or nil in a
+    # browser. Same check as +Tillbell.store+.
+    #
+    #   <% unless tillbell_store == :app_store %>
+    #     <%= link_to "Subscribe on the web", checkout_path %>
+    #   <% end %>
+    def tillbell_store
+      Tillbell.store(request.user_agent)
+    end
+
     # Renders an unstyled paywall driven by the +tillbell+ Stimulus controller, which
     # talks to the +tillbell+ Hotwire Native bridge component.
     #

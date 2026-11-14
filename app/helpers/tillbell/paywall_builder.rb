@@ -8,11 +8,20 @@ module Tillbell
       @template = template
     end
 
-    # A radio button for one Google Play base plan, wrapped in a label with the block's
-    # content. Pass +replacing+ (the current Pay::GooglePlay::Subscription) to make it a
-    # plan change; +replacement_mode+ is Google's proration mode, e.g.
-    # "CHARGE_PRORATED_PRICE", and is passed through untouched.
-    def plan_option(product_id:, base_plan_id: nil, checked: false, replacing: nil, replacement_mode: nil, **html_options, &block)
+    # A radio button for one product, wrapped in a label with the block's content: a Google
+    # Play +product_id+ and +base_plan_id+, an App Store +product_id+, or a +plan+ of
+    # +Tillbell.plans+ (a name or a plan), whose ids are those of the store of the app showing
+    # the page (see +Tillbell.store+; in a browser, those of the store that sells it, Google
+    # Play first). A +plan+ the store of the app does not sell renders nothing. Pass +replacing+ (the current
+    # Pay::GooglePlay::Subscription) to make it a plan change; +replacement_mode+ is Google's
+    # proration mode, e.g. "CHARGE_PRORATED_PRICE", and is passed through untouched.
+    def plan_option(product_id: nil, base_plan_id: nil, plan: nil, checked: false, replacing: nil, replacement_mode: nil, **html_options, &block)
+      if plan
+        plan = find_plan(plan)
+        product_id, base_plan_id = plan.product_for(store || (plan.product_id ? :google_play : :app_store)).values_at(:product_id, :base_plan_id)
+        return "".html_safe if product_id.blank?
+      end
+      raise ArgumentError, "plan_option needs a product_id or a plan" if product_id.blank?
       raise ArgumentError, "a plan change needs a replacement_mode" if replacing && replacement_mode.blank?
 
       radio = tag.input(
@@ -26,15 +35,25 @@ module Tillbell
       tag.label(**html_options) { radio + @template.capture(&block) }
     end
 
-    # The plan option for moving from the Google Play subscription +from+ to the plan +to+ of
-    # +Tillbell.plans+ (a name or a plan), checked, with the replacement mode Google needs:
-    # prorated for an upgrade, deferred to the next renewal for a downgrade (see
-    # +Tillbell.replacement_mode+). Use it in a paywall that offers this one plan.
+    # The plan option for moving from the store subscription +from+ to the plan +to+ of
+    # +Tillbell.plans+ (a name or a plan), checked. On Google Play it carries the replacement
+    # mode Google needs: prorated for an upgrade, deferred to the next renewal for a downgrade
+    # (see +Tillbell.replacement_mode+). On the App Store it is the target product alone: Apple
+    # replaces the subscription of the same group by itself. Use it in a paywall that offers
+    # this one plan, in the app of the store +from+ was bought in (see +Tillbell.store+): the
+    # other store cannot change it.
     def plan_change(to:, from:, **html_options, &block)
-      raise ArgumentError, "plan_change needs the current Google Play subscription (from:)" if from.nil?
+      raise ArgumentError, "plan_change needs the current store subscription (from:)" if from.nil?
+
+      target = find_plan(to)
+      if from.app_store?
+        raise ArgumentError, "#{to.inspect} is the current plan" if from.plan == target
+        raise ArgumentError, "#{to.inspect} has no App Store product" if target.app_store_product_id.blank?
+
+        return plan_option(**target.product_for(:app_store), checked: true, **html_options, &block)
+      end
 
       current = from.plan || raise(ArgumentError, "the current subscription (#{from.processor_plan}:#{from.base_plan_id}) is not in Tillbell.plans")
-      target = to.is_a?(Tillbell::Plan) ? to : Tillbell.plan(to) || raise(ArgumentError, "#{to.inspect} is not in Tillbell.plans")
       plan_option(product_id: target.product_id, base_plan_id: target.base_plan_id, checked: true, replacing: from,
                   replacement_mode: Tillbell.replacement_mode(from: current, to: target), **html_options, &block)
     end
@@ -72,6 +91,16 @@ module Tillbell
     end
 
     private
+      def find_plan(plan)
+        plan.is_a?(Tillbell::Plan) ? plan : Tillbell.plan(plan) || raise(ArgumentError, "#{plan.inspect} is not in Tillbell.plans")
+      end
+
+      # The store of the app showing the page; Google Play ids in a browser, where the paywall
+      # never connects anyway.
+      def store
+        Tillbell.store(@template.request.user_agent)
+      end
+
       def button(text, action, **html_options)
         tag.button(text, type: "button", disabled: true,
           **with_data(html_options, tillbell_target: "action", action: "tillbell##{action}"))

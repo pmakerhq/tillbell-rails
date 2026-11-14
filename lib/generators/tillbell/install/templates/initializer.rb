@@ -23,6 +23,13 @@ Tillbell.configure do |config|
   # (version 2) in App Store Connect.
   # config.apple.bundle_id = "com.example.app"
 
+  # Accept Xcode StoreKit Testing transactions (a .storekit file), unsigned by Apple. Ignored
+  # outside the development and test environments.
+  # config.apple.allow_xcode_transactions = Rails.env.development?
+
+  # Stop giving access that long after the end of a period no App Store notification renewed.
+  # config.apple.stale_after = 16.days
+
   # Who is buying. Evaluated in the controller and the view of the paywall.
   # config.current_owner = -> { current_user }
 

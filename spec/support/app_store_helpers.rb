@@ -42,30 +42,6 @@ module AppStoreHelpers
     JWT.encode(payload, chain.leaf_key, "ES256", { x5c: x5c })
   end
 
-  def apple_time(time)
-    time && (time.to_f * 1000).to_i
-  end
-
-  # A decoded JWSTransaction of an auto-renewable subscription.
-  def app_store_transaction(account_id:, product_id: "premium.monthly", original_transaction_id: "2000000000000001",
-                            transaction_id: "2000000000000001", purchased_at: Time.current, expires_at: 1.month.from_now,
-                            revoked_at: nil, bundle_id: BUNDLE_ID, type: Tillbell::AppStore::AUTO_RENEWABLE)
-    {
-      "transactionId" => transaction_id, "originalTransactionId" => original_transaction_id, "bundleId" => bundle_id,
-      "productId" => product_id, "type" => type, "appAccountToken" => account_id, "environment" => "Sandbox",
-      "purchaseDate" => apple_time(purchased_at), "expiresDate" => apple_time(expires_at),
-      "revocationDate" => apple_time(revoked_at), "signedDate" => apple_time(Time.current)
-    }.compact
-  end
-
-  # A decoded JWSRenewalInfo.
-  def app_store_renewal_info(product_id: "premium.monthly", auto_renew: true, billing_retry: false, grace_period_ends_at: nil)
-    {
-      "autoRenewProductId" => product_id, "autoRenewStatus" => auto_renew ? 1 : 0, "isInBillingRetryPeriod" => billing_retry,
-      "gracePeriodExpiresDate" => apple_time(grace_period_ends_at), "signedDate" => apple_time(Time.current)
-    }.compact
-  end
-
   # The decoded payload of an App Store Server Notification (version 2), with the signed
   # transaction and renewal information inside.
   def app_store_notification(type, transaction:, renewal_info: nil, subtype: nil, bundle_id: BUNDLE_ID)

@@ -93,6 +93,13 @@ RSpec.describe Pay::GooglePlay::Subscription do
         expect(names(tillbell_events { sync(expiry_time: 2.months.from_now) })).to eq(%i[subscription_updated subscription_renewed])
       end
 
+      it "emits subscription_reactivated when a cancellation is taken back before the end of the period" do
+        freeze_time
+        sync(state: "SUBSCRIPTION_STATE_CANCELED")
+
+        expect(names(tillbell_events { sync })).to eq(%i[subscription_updated subscription_reactivated])
+      end
+
       it "does not call the first activation of a pending purchase a renewal" do
         sync(state: "SUBSCRIPTION_STATE_PENDING", expiry_time: 1.month.from_now)
 

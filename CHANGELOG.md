@@ -6,6 +6,43 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- Helpers that work for both stores, so an app needs no `is_a?` on the processor classes:
+  `store?` and `store_name` ("Google Play", "App Store") on Pay subscriptions (`store?` on
+  customers too), `renewing?` (gives access and has no end date) and `sandbox?` (an App Store
+  sandbox purchase or a Google Play license tester's; always false for other processors).
+- `Tillbell::Owner#store_subscription`, `#store_on_hold?` and `#owned_store_subscription`, the
+  Google Play helpers extended to the App Store, and `#subscriptions_to_cancel_in_store`, the App
+  Store subscriptions still renewing that only the customer can stop.
+- `Tillbell.store(user_agent)` and the `tillbell_store` view helper: `:app_store` in the Hotwire
+  Native iOS app, `:google_play` in the Android one, nil in a browser.
+- `Pay::AppStore::Subscription#replacement?` and `#replaced?`, always false, and
+  `Tillbell::AppStore::REFUND_URL`.
+- `config.apple.allow_xcode_transactions` accepts Xcode StoreKit Testing transactions, unsigned
+  by Apple, in the development and test environments only.
+- `config.apple.stale_after`: an App Store subscription stops giving access that long after the
+  end of a period no notification renewed (`stale?`).
+- `price_amount` and `price_currency` on App Store subscriptions.
+- `app_store_product_id` on plans (the Google Play `product_id` by default, unless several plans
+  share that product; an App Store-only plan has no `product_id`), `paywall.plan_option(plan:)` with the ids of the app's store, and
+  `paywall.plan_change` from an App Store subscription.
+- The `subscription_reactivated` event, when a customer takes a cancellation back before the end
+  of the period.
+- `require "tillbell/test_helpers"`: `Tillbell::TestHelpers` creates store subscriptions in a
+  host app's tests.
+
+- The paywall controller keeps the last store prices on the device and shows them while the
+  store answers. Copy the new `tillbell_controller.js` from the generator template into your app.
+- Bridge contract: the iOS component can be limited to the hosts of the app's pages
+  (`allowedHosts` in tillbell-ios); a message from another host gets an `error` reply. On
+  Android, Hotwire Native's `originTrustPolicy` already does it.
+
+### Changed
+
+- App Store `sandbox?` is also true for Xcode StoreKit Testing purchases.
+- `tillbell:check` skips plans without a Google Play `product_id`.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added
