@@ -5,16 +5,26 @@ module Pay
     # Revenue reports that sum Pay charges then count the App Store next to Stripe.
     #
     # [processor_id] The +transactionId+, unique per payment.
-    # [amount] What the customer paid, tax included and before Apple's commission, in the
-    #          smallest unit of +currency+ (cents), like Stripe charges.
+    # [amount] The price the customer paid, in the smallest unit of +currency+ (cents), like
+    #          Stripe charges: the App Store Connect price of the storefront, before Apple's
+    #          commission, tax included where the storefront's prices include it (not in the
+    #          United States or Canada, for example).
     # [currency] Lowercase ISO 4217 code of the storefront's currency ("eur").
     # [amount_refunded] The part of +amount+ Apple refunded, zero when a refund is reversed.
     # [created_at] When Apple charged the customer (+purchaseDate+).
     # [object] The signed transaction payload, for debugging.
     #
-    # +data+ holds +environment+ ("Production", "Sandbox" or "Xcode") and +product_id+.
+    # +data+ holds +environment+ ("Production", "Sandbox" or "Xcode"), +product_id+ and
+    # +signed_date_ms+, when Apple signed the payload the charge was last updated from.
+    #
+    # Sandbox purchases are recorded too, as their subscriptions are: leave them out of revenue
+    # with +sandbox?+, or in SQL with the +sandbox+ scope.
     class Charge < Pay::Charge
-      store_accessor :data, :environment, :product_id
+      store_accessor :data, :environment, :product_id, :signed_date_ms
+
+      # Environments of purchases that cost nothing: TestFlight and App Review (Sandbox) and
+      # Xcode StoreKit Testing.
+      SANDBOX_ENVIRONMENTS = %w[Sandbox Xcode].freeze
 
       # The +revocationPercentage+ of a full refund: Apple gives percentages in thousandths.
       FULL_REVOCATION = 100_000
@@ -23,21 +33,29 @@ module Pay
       # removes someone's access to a purchase another person paid for.
       REFUNDS = %w[REFUND_FULL REFUND_PRORATED].freeze
 
+      # Charges of sandbox and Xcode purchases. +where.not+ on this scope leaves them out.
+      scope :sandbox, -> { where("#{table_name}.data->>'environment' IN (?)", SANDBOX_ENVIRONMENTS) }
+
       class << self
         # Saves the charge of a verified transaction (see Tillbell::AppStore.verify_transaction!)
         # of +subscription+, or updates its refund. Idempotent: a transaction is one charge,
-        # however many times a restore, a notification or a backfill brings it. Call it holding
-        # the subscription's row lock, as Pay::AppStore::Subscription.sync does, so two callers
-        # never insert the same transaction at once.
+        # however many times a restore, a notification or a backfill brings it, and a payload
+        # signed before the one the charge was last updated from changes nothing, so a late or
+        # replayed purchase never undoes a refund. Call it holding the subscription's row lock,
+        # as Pay::AppStore::Subscription.sync does, so two callers never insert the same
+        # transaction at once.
         #
         # Returns the charge, or nil when nothing was paid (a free trial), for a Family Sharing
-        # transaction (only the buyer's own transaction is a payment), and when the transaction
-        # has no price in a currency Pay knows.
+        # transaction (only the buyer's own transaction is a payment), for a transaction of
+        # another customer (several accounts can share an Apple Account, so one
+        # +originalTransactionId+ can be on two customers' subscriptions), and when the
+        # transaction has no price in a currency Pay knows.
         #
         # ponytail: the prorated refund Apple gives on an upgrade is not in the transaction data,
         # so the upgraded transaction keeps its full amount.
         def sync(transaction, subscription)
           return if transaction["inAppOwnershipType"] == "FAMILY_SHARED"
+          return unless transaction["appAccountToken"].to_s.downcase == subscription.customer.processor_id
 
           amount = amount_from(transaction)
           if amount.nil?
@@ -47,6 +65,8 @@ module Pay
           return if amount.zero?
 
           charge = find_or_initialize_by(customer_id: subscription.customer_id, processor_id: transaction["transactionId"].to_s)
+          return charge if transaction["signedDate"].to_i < charge.signed_date_ms.to_i
+
           charge.update!(
             subscription: subscription,
             amount: amount,
@@ -55,6 +75,7 @@ module Pay
             created_at: Tillbell::AppStore.time(transaction["purchaseDate"]),
             environment: transaction["environment"],
             product_id: transaction["productId"],
+            signed_date_ms: transaction["signedDate"].to_i,
             object: transaction
           )
           charge
@@ -71,11 +92,14 @@ module Pay
             (BigDecimal(transaction["price"].to_s) * subunits / 1000).round.to_i if subunits
           end
 
-          # A refund without +revocationPercentage+ is a full one, as before Apple added
-          # prorated refunds. A reversed refund removes the revocation fields.
+          # A refund without +revocationType+ is a full one, as before Apple added prorated
+          # refunds, except on a transaction the customer upgraded from: its revocation is the
+          # upgrade, not a refund. A reversed refund removes the revocation fields.
           def refunded(amount, transaction)
             return 0 if transaction["revocationDate"].nil?
-            return 0 if transaction["revocationType"].present? && !REFUNDS.include?(transaction["revocationType"])
+
+            type = transaction["revocationType"]
+            return 0 if type.present? ? !REFUNDS.include?(type) : transaction["isUpgraded"] == true
 
             percentage = transaction["revocationPercentage"] || FULL_REVOCATION
             (BigDecimal(amount) * percentage / FULL_REVOCATION).round.to_i
@@ -84,7 +108,13 @@ module Pay
 
       # True for a sandbox or Xcode purchase, which costs nothing: leave it out of revenue.
       def sandbox?
-        environment == "Sandbox" || environment == "Xcode"
+        SANDBOX_ENVIRONMENTS.include?(environment)
+      end
+
+      # Pay re-reads a charge from its processor by id; App Store charges are only updated from
+      # Apple's signed transactions (see +sync+), which a transaction id alone cannot fetch.
+      def sync!(**)
+        raise Tillbell::Error, "App Store charges are updated from Apple's notifications, or with tillbell:app_store:backfill_charges"
       end
     end
   end

@@ -138,7 +138,7 @@ module Tillbell
           query = { productType: "AUTO_RENEWABLE", sort: "ASCENDING", revision: revision }.compact
           response = api_get(environment, "/inApps/v2/history/#{ERB::Util.url_encode(transaction_id)}", query)
           Array(response["signedTransactions"]).each { |jws| yield verify_transaction!(jws) }
-          break unless response["hasMore"]
+          break unless response["hasMore"] && response["revision"].present?
 
           revision = response["revision"]
         end
@@ -147,7 +147,7 @@ module Tillbell
       # Saves the charge of every paid transaction of +subscription+ (a
       # Pay::AppStore::Subscription), read from Apple: the charges of purchases made before
       # Tillbell recorded charges, or of notifications that never arrived. Idempotent, so it can
-      # run again. Returns the number of charges saved or updated.
+      # run again. Returns the number of paid transactions synced, unchanged ones included.
       def backfill_charges(subscription)
         environment = subscription.environment.presence || "Production"
         return 0 unless API_HOSTS.key?(environment)
@@ -156,7 +156,11 @@ module Tillbell
           # The history holds all the customer's purchases in the app, other subscriptions too.
           next false unless transaction["originalTransactionId"] == subscription.processor_id
 
-          subscription.with_lock { Pay::AppStore::Charge.sync(transaction, subscription).present? }
+          # The same row lock as notifications take (see Pay::AppStore::Subscription.sync), on a
+          # fresh copy so the caller's instance is neither reloaded nor required to be clean.
+          Pay::AppStore::Subscription.transaction do
+            Pay::AppStore::Charge.sync(transaction, Pay::AppStore::Subscription.lock.find(subscription.id)).present?
+          end
         end
       end
 
@@ -195,6 +199,10 @@ module Tillbell
 
       private
         # GETs +path+ from the App Store Server API of +environment+ and returns the parsed body.
+        # Network failures and unreadable answers raise +Tillbell::Error+ too, so a caller going
+        # through many subscriptions can report one and move on.
+        #
+        # ponytail: no retry on 429 (rate limited); the backfill reports it and can run again.
         def api_get(environment, path, query)
           uri = URI(API_HOSTS.fetch(environment) { raise Error, "No App Store Server API for #{environment.inspect} transactions" } + path)
           uri.query = URI.encode_www_form(query) if query.any?
@@ -204,6 +212,8 @@ module Tillbell
           raise Error, "App Store Server API answered #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
           JSON.parse(response.body)
+        rescue JSON::ParserError, SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError => error
+          raise Error, "App Store Server API request failed: #{error.class}: #{error.message}"
         end
 
         # A JSON Web Token for one App Store Server API request, signed with the In-App Purchase
@@ -216,6 +226,8 @@ module Tillbell
           now = Time.now.to_i
           payload = { iss: apple.issuer_id, iat: now, exp: now + 300, aud: "appstoreconnect-v1", bid: bundle_id }
           JWT.encode(payload, OpenSSL::PKey::EC.new(apple.private_key), "ES256", { kid: apple.key_id, typ: "JWT" })
+        rescue OpenSSL::PKey::PKeyError
+          raise Error, "Tillbell.apple.private_key is not the content of an In-App Purchase key (.p8)"
         end
 
         # The payload of +jws+ when it is an Xcode StoreKit Testing transaction that the

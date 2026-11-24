@@ -56,4 +56,50 @@ RSpec.describe Pay::AppStore::Charge do
 
     expect(described_class.all.map(&:sandbox?)).to eq([ true, true ])
   end
+
+  it "never lets a payload signed before the last one undo a refund" do
+    refund = app_store_transaction(account_id: account_id, revoked_at: Time.current, price: "14.99", currency: "EUR")
+    stale = app_store_transaction(account_id: account_id, price: "14.99", currency: "EUR").merge("signedDate" => apple_time(1.hour.ago))
+    Pay::AppStore::Subscription.sync(refund)
+    Pay::AppStore::Subscription.sync(stale)
+
+    expect(described_class.sole.amount_refunded).to eq(1499)
+  end
+
+  it "counts no refund for a Family Sharing revocation or an upgrade" do
+    sync
+    Pay::AppStore::Subscription.sync(app_store_transaction(account_id: account_id, revoked_at: Time.current, price: "14.99", currency: "EUR")
+                                       .merge("revocationType" => "FAMILY_REVOKE"))
+    expect(described_class.sole.amount_refunded).to eq(0)
+
+    Pay::AppStore::Subscription.sync(app_store_transaction(account_id: account_id, revoked_at: Time.current, price: "14.99", currency: "EUR")
+                                       .merge("isUpgraded" => true, "signedDate" => apple_time(1.second.from_now)))
+    expect(described_class.sole.amount_refunded).to eq(0)
+  end
+
+  it "records nothing for another customer's transaction on the same original transaction" do
+    subscription = sync
+    other = User.create!(email: "grace@example.com")
+    transaction = app_store_transaction(account_id: Pay::GooglePlay::Customer.for(other).processor_id, transaction_id: "5", price: "14.99", currency: "EUR")
+
+    expect(described_class.sync(transaction, subscription)).to be_nil
+    expect(described_class.count).to eq(1)
+  end
+
+  it "warns about a currency Pay does not know instead of guessing its decimals" do
+    allow(Rails.logger).to receive(:warn)
+    sync(currency: "XXX")
+
+    expect(described_class.count).to eq(0)
+    expect(Rails.logger).to have_received(:warn).with(/no price in a known currency/)
+  end
+
+  it "selects sandbox charges in SQL and cannot be re-read from Apple by id" do
+    sync(environment: "Sandbox")
+    sync(transaction_id: "2", original_transaction_id: "2")
+
+    expect(described_class.sandbox.pluck(:processor_id)).to eq([ "2000000000000001" ])
+    expect(described_class.where.not(id: described_class.sandbox).pluck(:processor_id)).to eq([ "2" ])
+    expect { described_class.first.sync! }.to raise_error(Tillbell::Error, /backfill_charges/)
+  end
 end

@@ -137,7 +137,7 @@ RSpec.describe Tillbell::AppStore do
     before do
       Tillbell.apple.issuer_id = "57246542-96fe-1a63-e053-0824d011072a"
       Tillbell.apple.key_id = "2X9R4HXF34"
-      Tillbell.apple.private_key = key.to_pem
+      Tillbell.apple.private_key = key.private_to_pem
     end
 
     after { Tillbell.apple.issuer_id = Tillbell.apple.key_id = Tillbell.apple.private_key = nil }
@@ -163,6 +163,7 @@ RSpec.describe Tillbell::AppStore do
       payload, header = JWT.decode(token, key, true, algorithm: "ES256")
       expect(header).to include("kid" => "2X9R4HXF34", "typ" => "JWT")
       expect(payload).to include("iss" => "57246542-96fe-1a63-e053-0824d011072a", "aud" => "appstoreconnect-v1", "bid" => AppStoreHelpers::BUNDLE_ID)
+      expect(payload["exp"] - payload["iat"]).to be <= 3600
 
       stub_history(*pages)
       expect { described_class.backfill_charges(subscription) }.not_to change(Pay::AppStore::Charge, :count)
@@ -183,6 +184,19 @@ RSpec.describe Tillbell::AppStore do
       Tillbell.apple.key_id = "2X9R4HXF34"
       allow(Net::HTTP).to receive(:start).and_return(http_response(Net::HTTPUnauthorized, "401", '{"errorCode":4010000}'))
       expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /answered 401/)
+
+      allow(Net::HTTP).to receive(:start).and_raise(Net::OpenTimeout)
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /request failed: Net::OpenTimeout/)
+
+      Tillbell.apple.private_key = "not a key"
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /not the content of an In-App Purchase key/)
+    end
+
+    it "stops paging when Apple gives no revision to continue from" do
+      stub_history({ "signedTransactions" => [], "hasMore" => true })
+
+      expect(described_class.transaction_history("1").to_a).to eq([])
+      expect(requests.size).to eq(1)
     end
   end
 end
