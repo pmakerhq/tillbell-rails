@@ -138,7 +138,8 @@ module Tillbell
           query = { productType: "AUTO_RENEWABLE", sort: "ASCENDING", revision: revision }.compact
           response = api_get(environment, "/inApps/v2/history/#{ERB::Util.url_encode(transaction_id)}", query)
           Array(response["signedTransactions"]).each { |jws| yield verify_transaction!(jws) }
-          break unless response["hasMore"] && response["revision"].present?
+          # A missing or repeated revision would request the same page forever.
+          break unless response["hasMore"] && response["revision"].present? && response["revision"] != revision
 
           revision = response["revision"]
         end
@@ -211,8 +212,12 @@ module Tillbell
           # Apple's error bodies only hold an errorCode and an errorMessage.
           raise Error, "App Store Server API answered #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
-          JSON.parse(response.body)
-        rescue JSON::ParserError, SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError => error
+          body = JSON.parse(response.body)
+          raise Error, "App Store Server API answered #{response.code} without a JSON object" unless body.is_a?(Hash)
+
+          body
+        rescue JSON::ParserError, SocketError, SystemCallError, Timeout::Error, IOError, OpenSSL::SSL::SSLError,
+               Net::ProtocolError, Net::HTTPBadResponse => error
           raise Error, "App Store Server API request failed: #{error.class}: #{error.message}"
         end
 
@@ -226,7 +231,7 @@ module Tillbell
           now = Time.now.to_i
           payload = { iss: apple.issuer_id, iat: now, exp: now + 300, aud: "appstoreconnect-v1", bid: bundle_id }
           JWT.encode(payload, OpenSSL::PKey::EC.new(apple.private_key), "ES256", { kid: apple.key_id, typ: "JWT" })
-        rescue OpenSSL::PKey::PKeyError
+        rescue OpenSSL::PKey::PKeyError, JWT::EncodeError
           raise Error, "Tillbell.apple.private_key is not the content of an In-App Purchase key (.p8)"
         end
 

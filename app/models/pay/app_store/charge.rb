@@ -34,9 +34,20 @@ module Pay
       REFUNDS = %w[REFUND_FULL REFUND_PRORATED].freeze
 
       # Charges of sandbox and Xcode purchases. +where.not+ on this scope leaves them out.
-      scope :sandbox, -> { where("#{table_name}.data->>'environment' IN (?)", SANDBOX_ENVIRONMENTS) }
+      scope :sandbox, -> { where("#{environment_sql} IN (?)", SANDBOX_ENVIRONMENTS) }
 
       class << self
+        # SQL reading +data.environment+ as text, in the JSON syntax of the database: PostgreSQL,
+        # SQLite, or MySQL and MariaDB (Pay supports all of them).
+        def environment_sql
+          column = "#{connection.quote_table_name(table_name)}.#{connection.quote_column_name("data")}"
+          case connection.adapter_name
+          when /postg/i then "#{column}->>'environment'"
+          when /sqlite/i then "json_extract(#{column}, '$.environment')"
+          else "JSON_UNQUOTE(JSON_EXTRACT(#{column}, '$.environment'))"
+          end
+        end
+
         # Saves the charge of a verified transaction (see Tillbell::AppStore.verify_transaction!)
         # of +subscription+, or updates its refund. Idempotent: a transaction is one charge,
         # however many times a restore, a notification or a backfill brings it, and a payload
@@ -57,9 +68,11 @@ module Pay
           return if transaction["inAppOwnershipType"] == "FAMILY_SHARED"
           return unless transaction["appAccountToken"].to_s.downcase == subscription.customer.processor_id
 
+          return if transaction["price"].nil?
+
           amount = amount_from(transaction)
           if amount.nil?
-            Rails.logger.warn "[Tillbell] No charge for App Store transaction #{transaction["transactionId"]}: no price in a known currency"
+            Rails.logger.warn "[Tillbell] No charge for App Store transaction #{transaction["transactionId"]}: unknown currency #{transaction["currency"].inspect}"
             return
           end
           return if amount.zero?
@@ -82,12 +95,10 @@ module Pay
         end
 
         private
-          # The price in the smallest unit of its currency, nil without a price or for a currency
-          # Pay does not know. Apple sends it in thousandths of the currency unit (14990 for
-          # 14.99 euros), whatever the currency's own decimals.
+          # The price in the smallest unit of its currency, nil for a currency Pay does not know.
+          # Apple sends it in thousandths of the currency unit (14990 for 14.99 euros), whatever
+          # the currency's own decimals.
           def amount_from(transaction)
-            return if transaction["price"].nil?
-
             subunits = Pay::Currency.all.dig(transaction["currency"].to_s.downcase, "subunit_to_unit")
             (BigDecimal(transaction["price"].to_s) * subunits / 1000).round.to_i if subunits
           end
@@ -109,6 +120,12 @@ module Pay
       # True for a sandbox or Xcode purchase, which costs nothing: leave it out of revenue.
       def sandbox?
         SANDBOX_ENVIRONMENTS.include?(environment)
+      end
+
+      # Only Apple refunds App Store purchases: send the customer to
+      # +Tillbell::AppStore::REFUND_URL+. Apple then notifies the refund, which updates the charge.
+      def refund!(*, **)
+        raise Tillbell::Error, "Only Apple refunds App Store purchases; the customer asks at #{Tillbell::AppStore::REFUND_URL}"
       end
 
       # Pay re-reads a charge from its processor by id; App Store charges are only updated from

@@ -192,11 +192,22 @@ RSpec.describe Tillbell::AppStore do
       expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /not the content of an In-App Purchase key/)
     end
 
-    it "stops paging when Apple gives no revision to continue from" do
+    it "stops paging when Apple gives no new revision to continue from" do
       stub_history({ "signedTransactions" => [], "hasMore" => true })
-
       expect(described_class.transaction_history("1").to_a).to eq([])
       expect(requests.size).to eq(1)
+
+      stub_history({ "signedTransactions" => [], "hasMore" => true, "revision" => "r1" }, { "signedTransactions" => [], "hasMore" => true, "revision" => "r1" })
+      expect(described_class.transaction_history("1").to_a).to eq([])
+      expect(requests.size).to eq(3)
+    end
+
+    it "refuses an answer that is not a JSON object, and a dropped connection" do
+      stub_history(nil)
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /without a JSON object/)
+
+      allow(Net::HTTP).to receive(:start).and_raise(EOFError)
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /request failed: EOFError/)
     end
   end
 end

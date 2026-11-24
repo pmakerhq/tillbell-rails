@@ -91,7 +91,7 @@ RSpec.describe Pay::AppStore::Charge do
     sync(currency: "XXX")
 
     expect(described_class.count).to eq(0)
-    expect(Rails.logger).to have_received(:warn).with(/no price in a known currency/)
+    expect(Rails.logger).to have_received(:warn).with(/unknown currency "XXX"/)
   end
 
   it "selects sandbox charges in SQL and cannot be re-read from Apple by id" do
@@ -101,5 +101,6 @@ RSpec.describe Pay::AppStore::Charge do
     expect(described_class.sandbox.pluck(:processor_id)).to eq([ "2000000000000001" ])
     expect(described_class.where.not(id: described_class.sandbox).pluck(:processor_id)).to eq([ "2" ])
     expect { described_class.first.sync! }.to raise_error(Tillbell::Error, /backfill_charges/)
+    expect { described_class.first.refund! }.to raise_error(Tillbell::Error, /reportaproblem/)
   end
 end

@@ -207,6 +207,9 @@ The values marked "credentials" below come from Google: the [Google Play setup](
 | `current_owner` | `-> { current_user }` | Returns who is buying. Evaluated in the controller and in the view, so any helper available there works (`Current.user`, `current_account`, ...). |
 | `parent_controller` | `"ApplicationController"` | Controller the purchase endpoint inherits from, to reuse your authentication, CSRF protection and error handling. |
 | `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. Add `app_store_product_id:` when the App Store product has another id than the Google Play one, or when several plans share a Google Play product (each App Store product is one duration, so they get no default); an App Store-only plan has no `product_id`. `tillbell:check` verifies the Google Play ones, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
+| `apple.bundle_id` | (required for the App Store) | Bundle identifier of the iOS app. Transactions and notifications signed for another app are refused. |
+| `apple.allow_xcode_transactions` | `nil` | Accept Xcode StoreKit Testing transactions, unsigned by Apple, in the development and test environments only. |
+| `apple.stale_after` | `nil` | How long after the end of a period no notification renewed an App Store subscription stops giving access (`stale?`). |
 | `apple.issuer_id`, `apple.key_id`, `apple.private_key` | `nil` | An In-App Purchase key of App Store Connect, only needed to call the App Store Server API (`tillbell:app_store:backfill_charges`). See [App Store setup](#app-store-setup). |
 | `subscription_name` | `->(product_id:, base_plan_id:) { Pay.default_product_name }` | Pay subscription `name` of a Google Play product, as used by `subscribed?(name:)`. |
 

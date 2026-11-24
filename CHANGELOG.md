@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Upgrading
+
+- App Store purchases now create Pay charges, sandbox ones included (TestFlight and App Review
+  buy on your production server). If your app sums `Pay::Charge` for revenue, leave them out:
+  `Pay::Charge.where.not(id: Pay::AppStore::Charge.sandbox)`.
+
 ### Added
 
 - App Store payments are Pay charges: each paid transaction (the first purchase and every
