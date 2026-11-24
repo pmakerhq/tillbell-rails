@@ -104,4 +104,85 @@ RSpec.describe Tillbell::AppStore do
       expect { described_class.verify_notification!(app_store_jws(notification)) }.to raise_error(Tillbell::Error, /another app/)
     end
   end
+
+  describe "App Store Server API" do
+    let(:user) { User.create!(email: "ada@example.com") }
+    let(:account_id) { Pay::GooglePlay::Customer.for(user).processor_id }
+    let(:key) { OpenSSL::PKey::EC.generate("prime256v1") }
+    let(:requests) { [] }
+
+    def paid(**options)
+      app_store_jws(app_store_transaction(account_id: account_id, price: "14.99", currency: "EUR", **options))
+    end
+
+    def http_response(klass, code, body)
+      klass.new("1.1", code, "").tap do |response|
+        response.instance_variable_set(:@body, body)
+        response.instance_variable_set(:@read, true)
+      end
+    end
+
+    # Answers each request with the next page and records the request.
+    def stub_history(*pages)
+      allow(Net::HTTP).to receive(:start) do |host, *, &block|
+        http = instance_double(Net::HTTP)
+        allow(http).to receive(:request) do |request|
+          requests << [ host, request ]
+          http_response(Net::HTTPOK, "200", pages.shift.to_json)
+        end
+        block.call(http)
+      end
+    end
+
+    before do
+      Tillbell.apple.issuer_id = "57246542-96fe-1a63-e053-0824d011072a"
+      Tillbell.apple.key_id = "2X9R4HXF34"
+      Tillbell.apple.private_key = key.to_pem
+    end
+
+    after { Tillbell.apple.issuer_id = Tillbell.apple.key_id = Tillbell.apple.private_key = nil }
+
+    it "backfills the charges of a subscription from its transaction history, page by page, once" do
+      subscription = create_app_store_subscription(user)
+      other_subscription = app_store_jws(app_store_transaction(account_id: account_id, original_transaction_id: "9", transaction_id: "9", price: "1", currency: "EUR"))
+      pages = [
+        { "signedTransactions" => [ paid(purchased_at: 2.months.ago), other_subscription ], "hasMore" => true, "revision" => "r1" },
+        { "signedTransactions" => [ paid(transaction_id: "2000000000000002", purchased_at: 1.month.ago, revoked_at: 1.day.ago) ], "hasMore" => false }
+      ]
+      stub_history(*pages.deep_dup)
+
+      expect(described_class.backfill_charges(subscription)).to eq(2)
+      expect(Pay::AppStore::Charge.order(:created_at).pluck(:processor_id, :amount, :amount_refunded))
+        .to eq([ [ "2000000000000001", 1499, 0 ], [ "2000000000000002", 1499, 1499 ] ])
+
+      host, request = requests.first
+      expect(host).to eq("api.storekit.apple.com")
+      expect(request.path).to eq("/inApps/v2/history/2000000000000001?productType=AUTO_RENEWABLE&sort=ASCENDING")
+      expect(requests.last.last.path).to end_with("&revision=r1")
+      token = request["Authorization"].delete_prefix("Bearer ")
+      payload, header = JWT.decode(token, key, true, algorithm: "ES256")
+      expect(header).to include("kid" => "2X9R4HXF34", "typ" => "JWT")
+      expect(payload).to include("iss" => "57246542-96fe-1a63-e053-0824d011072a", "aud" => "appstoreconnect-v1", "bid" => AppStoreHelpers::BUNDLE_ID)
+
+      stub_history(*pages)
+      expect { described_class.backfill_charges(subscription) }.not_to change(Pay::AppStore::Charge, :count)
+    end
+
+    it "asks the sandbox for sandbox subscriptions and never asks for Xcode ones" do
+      stub_history({ "signedTransactions" => [], "hasMore" => false })
+
+      described_class.backfill_charges(create_app_store_subscription(user, environment: "Sandbox"))
+      expect(described_class.backfill_charges(create_app_store_subscription(user, original_transaction_id: "3", environment: "Xcode"))).to eq(0)
+      expect(requests.map(&:first)).to eq([ "api.storekit-sandbox.apple.com" ])
+    end
+
+    it "says which setting is missing and what Apple answered" do
+      Tillbell.apple.key_id = nil
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /Tillbell.apple.key_id/)
+
+      Tillbell.apple.key_id = "2X9R4HXF34"
+      allow(Net::HTTP).to receive(:start).and_return(http_response(Net::HTTPUnauthorized, "401", '{"errorCode":4010000}'))
+      expect { described_class.transaction_history("1").first }.to raise_error(Tillbell::Error, /answered 401/)
+    end
+  end
 end

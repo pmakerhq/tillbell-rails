@@ -7,6 +7,7 @@ module Pay
     # +appAccountToken+. Apple returns it in every signed transaction, which is how Tillbell
     # knows which owner a transaction belongs to.
     class Customer < Pay::Customer
+      has_many :charges, dependent: :destroy, class_name: "Pay::AppStore::Charge"
       has_many :subscriptions, dependent: :destroy, class_name: "Pay::AppStore::Subscription"
 
       # Returns the App Store customer of +owner+, creating it on first use.

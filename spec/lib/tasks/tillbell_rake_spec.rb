@@ -82,3 +82,23 @@ RSpec.describe "tillbell:check" do
     end
   end
 end
+
+RSpec.describe "tillbell:app_store:backfill_charges" do
+  before do
+    Rails.application.load_tasks unless Rake::Task.task_defined?("tillbell:app_store:backfill_charges")
+    Rake::Task["tillbell:app_store:backfill_charges"].reenable
+  end
+
+  it "backfills every App Store subscription and aborts after them when one failed" do
+    user = User.create!(email: "ada@example.com")
+    ok = create_app_store_subscription(user)
+    failing = create_app_store_subscription(user, original_transaction_id: "2")
+    allow(Tillbell::AppStore).to receive(:backfill_charges).with(ok).and_return(3)
+    allow(Tillbell::AppStore).to receive(:backfill_charges).with(failing).and_raise(Tillbell::Error, "App Store Server API answered 401")
+
+    expect { Rake::Task["tillbell:app_store:backfill_charges"].invoke }
+      .to output(/OK   #{ok.token_digest}: 3 charge\(s\).*FAIL #{failing.token_digest}: App Store Server API answered 401/m).to_stdout
+      .and output(/1 subscription\(s\) failed/).to_stderr
+      .and raise_error(SystemExit)
+  end
+end

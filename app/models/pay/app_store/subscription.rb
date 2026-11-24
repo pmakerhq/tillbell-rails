@@ -42,7 +42,9 @@ module Pay
 
         private
           # Applies the transaction under a row lock, so a purchase request and a notification
-          # for the same subscription serialize and only one of them emits each event.
+          # for the same subscription serialize and only one of them emits each event. The
+          # transaction's charge is saved under the same lock, even when the transaction is older
+          # than the one the subscription has: a refund notification carries the refunded one.
           def save_from_apple(pay_customer, transaction, renewal_info)
             attempts = 0
             begin
@@ -51,6 +53,7 @@ module Pay
                 subscription.apply(transaction, renewal_info)
                 events = subscription.events_for_changes
                 subscription.save!
+                Pay::AppStore::Charge.sync(transaction, subscription)
                 [ subscription, events ]
               end
             rescue ActiveRecord::RecordNotUnique
