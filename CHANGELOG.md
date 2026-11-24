@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-24
+
 ### Upgrading
 
 - App Store purchases now create Pay charges, sandbox ones included (TestFlight and App Review
