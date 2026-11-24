@@ -117,6 +117,27 @@ RSpec.describe "App Store purchases and notifications" do
       expect(Pay::AppStore::Subscription.sole.current_period_end).to be_within(1.second).of(2.months.from_now)
     end
 
+    it "records each payment as a charge, and a refund, then its reversal, of an older one" do
+      paid = { price: "14.99", currency: "EUR" }
+      notify = lambda do |type, **options|
+        post_notification(app_store_jws(app_store_notification(type, transaction: app_store_transaction(account_id: account_id, **paid, **options))))
+        perform_enqueued_jobs(only: Pay::Webhooks::ProcessJob)
+      end
+
+      notify.call("SUBSCRIBED", purchased_at: 1.month.ago)
+      notify.call("DID_RENEW", transaction_id: "2000000000000002", expires_at: 2.months.from_now)
+      expect(Pay::AppStore::Charge.order(:created_at).pluck(:processor_id, :amount)).to eq([ [ "2000000000000001", 1499 ], [ "2000000000000002", 1499 ] ])
+
+      travel 1.second
+      notify.call("REFUND", purchased_at: 1.month.ago, revoked_at: Time.current)
+      expect(Pay::AppStore::Charge.find_by!(processor_id: "2000000000000001").amount_refunded).to eq(1499)
+      expect(Pay::AppStore::Subscription.sole.revoked?).to be(false)
+
+      travel 1.second
+      notify.call("REFUND_REVERSED", purchased_at: 1.month.ago)
+      expect(Pay::AppStore::Charge.find_by!(processor_id: "2000000000000001").amount_refunded).to eq(0)
+    end
+
     it "refuses an unsigned notification" do
       post_notification(app_store_jws(app_store_notification("DID_RENEW", transaction: transaction), chain: AppStoreHelpers.chain))
 

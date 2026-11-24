@@ -14,4 +14,19 @@ namespace :tillbell do
     abort "\nSomething will not work: see the README, \"Google Play setup\"." unless check.ok?
     puts "\nEverything is in place."
   end
+
+  namespace :app_store do
+    desc "Save the charges of past App Store payments, read from Apple. Idempotent. Needs config.apple.issuer_id, key_id and private_key."
+    task backfill_charges: :environment do
+      failures = 0
+      Pay::AppStore::Subscription.find_each do |subscription|
+        saved = Tillbell::AppStore.backfill_charges(subscription)
+        puts "OK   #{subscription.token_digest}: #{saved} charge(s)"
+      rescue Tillbell::Error => error
+        failures += 1
+        puts "FAIL #{subscription.token_digest}: #{error.message}"
+      end
+      abort "\n#{failures} subscription(s) failed; run the task again once fixed." if failures.positive?
+    end
+  end
 end

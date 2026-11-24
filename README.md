@@ -207,6 +207,10 @@ The values marked "credentials" below come from Google: the [Google Play setup](
 | `current_owner` | `-> { current_user }` | Returns who is buying. Evaluated in the controller and in the view, so any helper available there works (`Current.user`, `current_account`, ...). |
 | `parent_controller` | `"ApplicationController"` | Controller the purchase endpoint inherits from, to reuse your authentication, CSRF protection and error handling. |
 | `plans` | `[]` | The plans you sell, lowest first: `[{ name: :solo, product_id: "app_solo", base_plan_id: "monthly" }, ...]`. Add `app_store_product_id:` when the App Store product has another id than the Google Play one, or when several plans share a Google Play product (each App Store product is one duration, so they get no default); an App Store-only plan has no `product_id`. `tillbell:check` verifies the Google Play ones, `subscription.plan` finds the one a subscription is on, and `Tillbell.replacement_mode` and `paywall.plan_change` use their order to tell an upgrade from a downgrade. |
+| `apple.bundle_id` | (required for the App Store) | Bundle identifier of the iOS app. Transactions and notifications signed for another app are refused. |
+| `apple.allow_xcode_transactions` | `nil` | Accept Xcode StoreKit Testing transactions, unsigned by Apple, in the development and test environments only. |
+| `apple.stale_after` | `nil` | An App Store subscription that no notification renewed stops giving access (`grants_access?` false, `stale?` true) this long after the end of its period. Set it at least to your billing grace period, e.g. `16.days`. `nil` trusts the last state Apple notified forever. |
+| `apple.issuer_id`, `apple.key_id`, `apple.private_key` | `nil` | An In-App Purchase key of App Store Connect, only needed to call the App Store Server API (`tillbell:app_store:backfill_charges`). See [App Store setup](#app-store-setup). |
 | `subscription_name` | `->(product_id:, base_plan_id:) { Pay.default_product_name }` | Pay subscription `name` of a Google Play product, as used by `subscribed?(name:)`. |
 
 ## The paywall
@@ -643,6 +647,18 @@ The iOS app ([tillbell-ios](https://github.com/pmakerhq/tillbell-ios)) talks to 
 
 6. **Decide what happens if notifications stop.** A renewing subscription only moves on when Apple notifies the renewal. If notifications stop reaching your server, the last state stays, access included. `config.apple.stale_after = 16.days` (at least your billing grace period) makes `grants_access?` false that long after the end of a period no notification renewed; `stale?` tells such subscriptions.
 
+7. **Backfill past payments (optional).** Tillbell records each App Store payment as a Pay charge (see below) from the moment it is installed. To also record the payments made before, or those whose notification never arrived, create an In-App Purchase key in App Store Connect (*Users and Access* › *Integrations* › *In-App Purchase*), set it, then run the backfill. It reads each subscription's transaction history from the App Store Server API and can run again safely:
+
+   ```ruby
+   config.apple.issuer_id = Rails.application.credentials.dig(:tillbell, :apple_issuer_id)
+   config.apple.key_id = Rails.application.credentials.dig(:tillbell, :apple_key_id)
+   config.apple.private_key = Rails.application.credentials.dig(:tillbell, :apple_private_key) # the .p8 file's content
+   ```
+
+   ```sh
+   bin/rails tillbell:app_store:backfill_charges
+   ```
+
 How App Store subscriptions differ:
 
 - `processor_id` is the `originalTransactionId`, which stays the same across renewals and plan changes.
@@ -650,6 +666,7 @@ How App Store subscriptions differ:
 - Statuses: `active` (including Apple's billing grace period), `past_due` in billing retry after the grace period (no access, see `grants_access?`), `canceled` once expired or refunded.
 - Sandbox purchases (TestFlight, App Review) are accepted, so App Review can buy against your production server (Xcode StoreKit Testing ones only in development, see above); `sandbox?` tells them apart, for example to keep them out of revenue reports.
 - `price_amount` and `price_currency` give what Apple charged for the last transaction (an introductory offer included), as for Google Play.
+- Every paid transaction, the first purchase and each renewal, is a `Pay::AppStore::Charge`: `amount` is the price the customer paid, before Apple's commission, in the smallest unit of `currency` (lowercase, `"eur"`), like a Stripe charge, so revenue reports that sum Pay charges count the App Store too. It is the App Store Connect price of the storefront, so it includes tax where the storefront's prices do (not in the United States or Canada, for example). Its `created_at` is when Apple charged. A refund sets `amount_refunded` (the prorated part for a prorated refund), back to zero if Apple reverses it; a payload signed before the last one changes nothing, so a late notification never undoes a refund. Free trials, family-shared transactions and transactions without a price are not charges. Charges of sandbox and Xcode purchases are recorded too: leave them out of revenue with `charge.sandbox?`, or in SQL with `Pay::Charge.where.not(id: Pay::AppStore::Charge.sandbox)`. An upgrade's prorated refund of the previous product is not in Apple's data, so the upgraded transaction keeps its full amount. `sync!` raises: Apple's notifications and the backfill below update these charges.
 - Family-shared subscriptions are not recorded: they belong to the family member who bought them.
 - Only the customer can cancel an App Store subscription, in the App Store: `cancel` and `cancel_now!` leave it unchanged (they never raise, so deleting an owner still works). Send the customer to `manage_url` before closing their account (`owner.subscriptions_to_cancel_in_store` lists them). Only Apple refunds, at `Tillbell::AppStore::REFUND_URL`.
 - `replacement?` and `replaced?` are always false: a plan change keeps the same `originalTransactionId`.

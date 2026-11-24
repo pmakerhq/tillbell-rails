@@ -70,6 +70,11 @@ module Tillbell
   #               notification renewed or ended keeps giving access, e.g. +16.days+ (set it at
   #               least to the billing grace period of your subscriptions). Nil, the default,
   #               trusts the last state Apple notified forever.
+  # [issuer_id] Issuer id of the App Store Connect API keys (Users and Access, Integrations,
+  #             In-App Purchase).
+  # [key_id] Id of an In-App Purchase key.
+  # [private_key] Content of that key's +.p8+ file. These three are only needed to call the
+  #               App Store Server API, which +tillbell:app_store:backfill_charges+ does.
   mattr_accessor :apple, default: ActiveSupport::OrderedOptions.new
 
   # Returns the Pay owner (usually a User) the current request acts for, or nil.

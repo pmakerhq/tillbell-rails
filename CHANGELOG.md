@@ -6,6 +6,25 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Upgrading
+
+- App Store purchases now create Pay charges, sandbox ones included (TestFlight and App Review
+  buy on your production server). If your app sums `Pay::Charge` for revenue, leave them out:
+  `Pay::Charge.where.not(id: Pay::AppStore::Charge.sandbox)`.
+
+### Added
+
+- App Store payments are Pay charges: each paid transaction (the first purchase and every
+  renewal) is saved as a `Pay::AppStore::Charge`, with what the customer paid in the
+  storefront's currency, so revenue reports that sum Pay charges count the App Store. Refunds,
+  prorated ones included, set `amount_refunded`; a reversed refund resets it. `sandbox?` and the
+  `sandbox` scope tell sandbox and Xcode charges apart. `refund!` raises `Tillbell::Error`: only
+  Apple refunds App Store purchases.
+- `Tillbell::AppStore.transaction_history`, a client of the App Store Server API's "Get
+  Transaction History", configured with `config.apple.issuer_id`, `key_id` and `private_key`.
+- `bin/rails tillbell:app_store:backfill_charges` saves the charges of App Store payments made
+  before this version, or whose notification never arrived. Idempotent.
+
 ## [0.7.0] - 2026-11-14
 
 ### Added

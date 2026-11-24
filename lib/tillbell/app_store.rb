@@ -1,6 +1,8 @@
 require "base64"
+require "erb"
 require "json"
 require "jwt"
+require "net/http"
 require "openssl"
 
 module Tillbell
@@ -11,6 +13,9 @@ module Tillbell
   # at once and never has to retry later.
   #
   # Every method returns the decoded payload as a hash with Apple's camelCase string keys.
+  #
+  # Only the charge backfill calls Apple, through the App Store Server API: see
+  # +transaction_history+ and +config.apple.issuer_id+.
   module AppStore
     # Apple Root CA - G3, from https://www.apple.com/certificateauthority/AppleRootCA-G3.cer
     # SHA-256 fingerprint 63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79,
@@ -49,6 +54,13 @@ module Tillbell
     # The page where a customer asks Apple for a refund: only Apple refunds App Store
     # purchases, the app cannot. Apple then notifies the refund, which revokes the subscription.
     REFUND_URL = "https://reportaproblem.apple.com".freeze
+
+    # App Store Server API hosts, by the +environment+ of the transactions they hold. Xcode
+    # StoreKit Testing transactions never reach Apple's servers.
+    API_HOSTS = {
+      "Production" => "https://api.storekit.apple.com",
+      "Sandbox" => "https://api.storekit-sandbox.apple.com"
+    }.freeze
 
     class << self
       # The certificates a chain must end at. Only specs change it.
@@ -111,6 +123,48 @@ module Tillbell
         Pay::AppStore::Subscription.sync(transaction, renewal_info)
       end
 
+      # Yields each auto-renewable subscription transaction of the customer who made
+      # +transaction_id+ (any of their transaction ids), verified like a purchase, from the
+      # App Store Server API ("Get Transaction History"). Refunded transactions are included,
+      # with their revocation fields. Returns an enumerator without a block.
+      #
+      # Needs an In-App Purchase key: +config.apple.issuer_id+, +key_id+ and +private_key+.
+      # Raises +Tillbell::Error+ when Apple refuses the request.
+      def transaction_history(transaction_id, environment: "Production")
+        return enum_for(:transaction_history, transaction_id, environment: environment) unless block_given?
+
+        revision = nil
+        loop do
+          query = { productType: "AUTO_RENEWABLE", sort: "ASCENDING", revision: revision }.compact
+          response = api_get(environment, "/inApps/v2/history/#{ERB::Util.url_encode(transaction_id)}", query)
+          Array(response["signedTransactions"]).each { |jws| yield verify_transaction!(jws) }
+          # A missing or repeated revision would request the same page forever.
+          break unless response["hasMore"] && response["revision"].present? && response["revision"] != revision
+
+          revision = response["revision"]
+        end
+      end
+
+      # Saves the charge of every paid transaction of +subscription+ (a
+      # Pay::AppStore::Subscription), read from Apple: the charges of purchases made before
+      # Tillbell recorded charges, or of notifications that never arrived. Idempotent, so it can
+      # run again. Returns the number of paid transactions synced, unchanged ones included.
+      def backfill_charges(subscription)
+        environment = subscription.environment.presence || "Production"
+        return 0 unless API_HOSTS.key?(environment)
+
+        transaction_history(subscription.processor_id, environment: environment).count do |transaction|
+          # The history holds all the customer's purchases in the app, other subscriptions too.
+          next false unless transaction["originalTransactionId"] == subscription.processor_id
+
+          # The same row lock as notifications take (see Pay::AppStore::Subscription.sync), on a
+          # fresh copy so the caller's instance is neither reloaded nor required to be clean.
+          Pay::AppStore::Subscription.transaction do
+            Pay::AppStore::Charge.sync(transaction, Pay::AppStore::Subscription.lock.find(subscription.id)).present?
+          end
+        end
+      end
+
       # The bundle identifier of the iOS app, from +config.apple.bundle_id+. Raises
       # +Tillbell::Error+ when it is not set.
       def bundle_id
@@ -145,6 +199,42 @@ module Tillbell
       end
 
       private
+        # GETs +path+ from the App Store Server API of +environment+ and returns the parsed body.
+        # Network failures and unreadable answers raise +Tillbell::Error+ too, so a caller going
+        # through many subscriptions can report one and move on.
+        #
+        # ponytail: no retry on 429 (rate limited); the backfill reports it and can run again.
+        def api_get(environment, path, query)
+          uri = URI(API_HOSTS.fetch(environment) { raise Error, "No App Store Server API for #{environment.inspect} transactions" } + path)
+          uri.query = URI.encode_www_form(query) if query.any?
+          request = Net::HTTP::Get.new(uri, "Authorization" => "Bearer #{api_token}")
+          response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) { |http| http.request(request) }
+          # Apple's error bodies only hold an errorCode and an errorMessage.
+          raise Error, "App Store Server API answered #{response.code}: #{response.body}" unless response.is_a?(Net::HTTPSuccess)
+
+          body = JSON.parse(response.body)
+          raise Error, "App Store Server API answered #{response.code} without a JSON object" unless body.is_a?(Hash)
+
+          body
+        rescue JSON::ParserError, SocketError, SystemCallError, Timeout::Error, IOError, OpenSSL::SSL::SSLError,
+               Net::ProtocolError, Net::HTTPBadResponse => error
+          raise Error, "App Store Server API request failed: #{error.class}: #{error.message}"
+        end
+
+        # A JSON Web Token for one App Store Server API request, signed with the In-App Purchase
+        # key. Apple refuses tokens valid for more than an hour; five minutes cover a request.
+        def api_token
+          apple = Tillbell.apple
+          missing = %i[issuer_id key_id private_key].select { |setting| apple[setting].blank? }
+          raise Error, "Set Tillbell.apple.#{missing.join(", ")} to call the App Store Server API" if missing.any?
+
+          now = Time.now.to_i
+          payload = { iss: apple.issuer_id, iat: now, exp: now + 300, aud: "appstoreconnect-v1", bid: bundle_id }
+          JWT.encode(payload, OpenSSL::PKey::EC.new(apple.private_key), "ES256", { kid: apple.key_id, typ: "JWT" })
+        rescue OpenSSL::PKey::PKeyError, JWT::EncodeError
+          raise Error, "Tillbell.apple.private_key is not the content of an In-App Purchase key (.p8)"
+        end
+
         # The payload of +jws+ when it is an Xcode StoreKit Testing transaction that the
         # configuration allows, otherwise nil. Never in production or staging: without Apple's
         # signature, anyone could forge one.
