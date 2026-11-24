@@ -25,13 +25,23 @@ RSpec.describe Pay::AppStore::Charge do
     expect(described_class.sole).to have_attributes(amount: 1500, currency: "jpy")
   end
 
+  it "reads the environment in the JSON syntax of each database" do
+    sql = ->(adapter) { described_class.with_connection { |c| allow(c).to receive(:adapter_name).and_return(adapter) } && described_class.environment_sql }
+
+    expect(sql.call("PostgreSQL")).to eq(%("pay_charges"."data"->>'environment'))
+    expect(sql.call("SQLite")).to eq(%(json_extract("pay_charges"."data", '$.environment')))
+    expect(sql.call("Mysql2")).to eq(%(JSON_UNQUOTE(JSON_EXTRACT("pay_charges"."data", '$.environment'))))
+  end
+
   it "records nothing for a free trial, a transaction without a price or a family-shared one" do
+    allow(Rails.logger).to receive(:warn)
     sync(price: "0")
     sync(transaction_id: "2", price: nil, currency: nil)
     Pay::AppStore::Subscription.sync(app_store_transaction(account_id: account_id, transaction_id: "3", price: "14.99", currency: "EUR")
                                        .merge("inAppOwnershipType" => "FAMILY_SHARED"))
 
     expect(described_class.count).to eq(0)
+    expect(Rails.logger).not_to have_received(:warn)
   end
 
   it "records a refund, full or prorated, of an older transaction too, and its reversal" do

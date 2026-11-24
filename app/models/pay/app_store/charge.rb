@@ -40,11 +40,13 @@ module Pay
         # SQL reading +data.environment+ as text, in the JSON syntax of the database: PostgreSQL,
         # SQLite, or MySQL and MariaDB (Pay supports all of them).
         def environment_sql
-          column = "#{connection.quote_table_name(table_name)}.#{connection.quote_column_name("data")}"
-          case connection.adapter_name
-          when /postg/i then "#{column}->>'environment'"
-          when /sqlite/i then "json_extract(#{column}, '$.environment')"
-          else "JSON_UNQUOTE(JSON_EXTRACT(#{column}, '$.environment'))"
+          with_connection do |connection|
+            column = "#{connection.quote_table_name(table_name)}.#{connection.quote_column_name("data")}"
+            case connection.adapter_name
+            when /postg/i then "#{column}->>'environment'"
+            when /sqlite/i then "json_extract(#{column}, '$.environment')"
+            else "JSON_UNQUOTE(JSON_EXTRACT(#{column}, '$.environment'))"
+            end
           end
         end
 
@@ -68,7 +70,8 @@ module Pay
           return if transaction["inAppOwnershipType"] == "FAMILY_SHARED"
           return unless transaction["appAccountToken"].to_s.downcase == subscription.customer.processor_id
 
-          return if transaction["price"].nil?
+          # Without a price, or a free trial: nothing was paid.
+          return if transaction["price"].to_i.zero?
 
           amount = amount_from(transaction)
           if amount.nil?

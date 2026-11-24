@@ -18,7 +18,8 @@ All notable changes to this project are documented in this file. The format foll
   renewal) is saved as a `Pay::AppStore::Charge`, with what the customer paid in the
   storefront's currency, so revenue reports that sum Pay charges count the App Store. Refunds,
   prorated ones included, set `amount_refunded`; a reversed refund resets it. `sandbox?` and the
-  `sandbox` scope tell sandbox and Xcode charges apart.
+  `sandbox` scope tell sandbox and Xcode charges apart. `refund!` raises `Tillbell::Error`: only
+  Apple refunds App Store purchases.
 - `Tillbell::AppStore.transaction_history`, a client of the App Store Server API's "Get
   Transaction History", configured with `config.apple.issuer_id`, `key_id` and `private_key`.
 - `bin/rails tillbell:app_store:backfill_charges` saves the charges of App Store payments made
