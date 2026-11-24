@@ -30,6 +30,12 @@ Tillbell.configure do |config|
   # Stop giving access that long after the end of a period no App Store notification renewed.
   # config.apple.stale_after = 16.days
 
+  # In-App Purchase key of App Store Connect, only for bin/rails tillbell:app_store:backfill_charges,
+  # which records the App Store payments made before Tillbell recorded them.
+  # config.apple.issuer_id = Rails.application.credentials.dig(:tillbell, :apple_issuer_id)
+  # config.apple.key_id = Rails.application.credentials.dig(:tillbell, :apple_key_id)
+  # config.apple.private_key = Rails.application.credentials.dig(:tillbell, :apple_private_key)
+
   # Who is buying. Evaluated in the controller and the view of the paywall.
   # config.current_owner = -> { current_user }
 
