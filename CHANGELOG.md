@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-25
+
+### Fixed
+
+- A purchase no longer fails with a 500 when Google answers 409 `concurrentUpdate` to the
+  acknowledge because another call is already updating the purchase: it is synced again a
+  minute later, which acknowledges it if it is still pending.
+
 ## [0.8.0] - 2026-11-24
 
 ### Upgrading
