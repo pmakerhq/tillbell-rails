@@ -2,6 +2,8 @@ require "pay"
 require "tillbell/version"
 require "tillbell/engine"
 require "tillbell/google_play"
+require "tillbell/google_play/external_transactions"
+require "tillbell/stripe_external_offers"
 require "tillbell/app_store"
 require "tillbell/check"
 require "tillbell/owner"
@@ -30,8 +32,11 @@ module Tillbell
   # +payment_recovered+ and +plan_changed+ say which one happened.
   # +subscription_reactivated+ follows a +subscription_canceled+ the customer took back
   # before the end of the period.
+  # +external_transaction_overdue+, +external_transaction_orphaned+ and +external_transaction_failed+
+  # are about payments made through Google Play's external offers (see Tillbell::StripeExternalOffers).
   EVENTS = %i[subscription_created subscription_updated subscription_renewed payment_failed payment_recovered plan_changed
-              subscription_canceled subscription_reactivated subscription_expired subscription_revoked purchase_rejected].freeze
+              subscription_canceled subscription_reactivated subscription_expired subscription_revoked purchase_rejected
+              external_transaction_overdue external_transaction_orphaned external_transaction_failed].freeze
 
   # A plan the app sells, under a name of your own: a Google Play product and its base plan,
   # and the App Store product of the same plan. The App Store product id defaults to the Google
@@ -56,6 +61,8 @@ module Tillbell
   # [service_account_json] JSON key of a service account with access to the Play Console.
   # [pubsub_service_account_email] Service account Pub/Sub signs its push requests with.
   # [pubsub_audience] Audience of those requests; defaults to the notification endpoint URL.
+  # [external_offers] Report Stripe payments made through Google Play's external offers program
+  #                   (EEA) to Google. Off by default; see Tillbell::StripeExternalOffers.
   mattr_accessor :google, default: ActiveSupport::OrderedOptions.new
 
   # App Store settings.
@@ -194,7 +201,12 @@ module Tillbell
     end
 
     # Subscribes to a Tillbell event. The block receives the +Pay::GooglePlay::Subscription+
-    # (or, for +:purchase_rejected+, a hash describing the refused purchase).
+    # (or, for +:purchase_rejected+, a hash describing the refused purchase). For
+    # +:external_transaction_overdue+ it receives the Tillbell::ExternalTransaction, and for
+    # +:external_transaction_orphaned+ a hash with the +stripe_invoice_id+ and
+    # +stripe_subscription_id+ of a renewal that cannot be reported. +:external_transaction_failed+
+    # receives a hash with the +kind+ ("invoice" or "refund"), the Stripe +id+ and the last +error+
+    # of a payment or refund that was retried for 24 hours without being reported.
     #
     # Events go through Pay's webhook delegator, so +Pay::Webhooks.delegator.subscribe
     # "tillbell.subscription_created"+ works too.
