@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_11_25_000000) do
+ActiveRecord::Schema[8.0].define(version: 2026_11_25_170000) do
   create_table "pay_charges", force: :cascade do |t|
     t.bigint "customer_id", null: false
     t.bigint "subscription_id"
@@ -127,6 +127,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_11_25_000000) do
     t.bigint "refunded_micros", default: 0, null: false
     t.bigint "refunded_pre_tax_micros", default: 0, null: false
     t.datetime "overdue_at"
+    t.integer "report_attempts", default: 0, null: false
+    t.datetime "last_attempt_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["external_transaction_id"], name: "idx_on_external_transaction_id_5f4d79cbea", unique: true

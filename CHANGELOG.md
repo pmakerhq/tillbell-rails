@@ -6,6 +6,18 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-25
+
+### Upgrading
+
+- Run `bin/rails tillbell:install:migrations db:migrate`: a migration adds the report attempts
+  below to `tillbell_external_transactions`.
+
+### Added
+
+- `Tillbell::ExternalTransaction#report_attempts` and `#last_attempt_at`: how many times a
+  payment was sent to Google, and when last, for an admin page or an alert.
+
 ## [0.9.0] - 2026-11-25
 
 ### Added
