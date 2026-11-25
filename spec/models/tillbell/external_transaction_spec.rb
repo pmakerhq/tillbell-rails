@@ -18,7 +18,7 @@ RSpec.describe Tillbell::ExternalTransaction do
         transaction.report!
         transaction.report!
 
-        expect(transaction.reload.reported_at).to eq(Time.current)
+        expect(transaction.reload).to have_attributes(reported_at: Time.current, report_attempts: 1, last_attempt_at: Time.current)
       end
     end
 
@@ -36,6 +36,7 @@ RSpec.describe Tillbell::ExternalTransaction do
       expect { transaction.report! }.to raise_error(Google::Apis::ServerError)
       expect(transaction.reload).not_to be_reported
       expect(transaction.last_error).to include("Google::Apis::ServerError")
+      expect(transaction.report_attempts).to eq(1)
     end
   end
 

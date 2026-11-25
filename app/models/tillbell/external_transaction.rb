@@ -29,11 +29,14 @@ module Tillbell
     # True once Google has the payment.
     def reported? = reported_at.present?
 
-    # Reports the payment to Google, unless it already was. The error, if any, is kept in
-    # +last_error+ and raised again for the caller to retry.
+    # Reports the payment to Google, unless it already was. Each call counts in
+    # +report_attempts+ and +last_attempt_at+; the error, if any, is kept in +last_error+ and
+    # raised again for the caller to retry.
     def report!
       return if reported?
 
+      # A SQL increment, so two jobs reporting the same payment at once count both attempts.
+      self.class.update_counters(id, report_attempts: 1, touch: :last_attempt_at)
       GooglePlay::ExternalTransactions.report(
         external_transaction_id: external_transaction_id, pre_tax_micros: pre_tax_micros, tax_micros: tax_micros,
         currency: currency, region_code: region_code, transaction_time: transaction_time, link_type: link_type,
