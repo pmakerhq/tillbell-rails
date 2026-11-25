@@ -8,7 +8,8 @@ RSpec.describe "Bridge contract" do
 
   it "has a schema for every message" do
     expect(schemas.keys).to contain_exactly(
-      "products.request", "products.reply", "purchase.request", "purchase.reply", "restore.request", "restore.reply", "manage.request"
+      "products.request", "products.reply", "purchase.request", "purchase.reply", "restore.request", "restore.reply", "manage.request",
+      "externalOffer.request", "externalOffer.reply"
     )
   end
 
@@ -36,7 +37,14 @@ RSpec.describe "Bridge contract" do
     ],
     "purchase.reply" => [ { "result" => "purchased" }, { "result" => "refunded" } ],
     "products.reply" => [ { "result" => "ok" } ],
-    "restore.reply" => [ { "result" => "ok", "purchases" => [ { "productId" => "premium" } ] } ]
+    "restore.reply" => [ { "result" => "ok", "purchases" => [ { "productId" => "premium" } ] } ],
+    "externalOffer.request" => [
+      { "action" => "launch" },
+      { "action" => "launch", "url" => "http://example.com/checkout" },
+      { "action" => "token", "url" => "https://example.com/checkout" },
+      { "action" => "purchase" }
+    ],
+    "externalOffer.reply" => [ { "result" => "unavailable", "externalTransactionToken" => "t" }, { "result" => "available" } ]
   }.each do |name, messages|
     messages.each do |message|
       it "rejects the #{name} message #{JSON.generate(message)}" do

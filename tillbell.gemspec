@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files = Dir["{app,config,contract,lib}/**/*", "MIT-LICENSE", "README.md", "CHANGELOG.md"]
+  spec.files = Dir["{app,config,contract,db,lib}/**/*", "MIT-LICENSE", "README.md", "CHANGELOG.md"]
 
   spec.add_dependency "rails", ">= 8.0"
   spec.add_dependency "pay", ">= 12.0"

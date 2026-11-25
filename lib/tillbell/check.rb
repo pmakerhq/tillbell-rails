@@ -134,6 +134,7 @@ module Tillbell
       service = Tillbell::GooglePlay.service
       return unless check_purchase_access(service)
 
+      check_external_transactions(service) if google.external_offers
       @plans.any? ? @plans.each { |plan| check_plan(service, plan) } : list_subscriptions(service)
     rescue StandardError => error
       add :fail, "Google Play API access", describe(error)
@@ -159,6 +160,21 @@ module Tillbell
     rescue Google::Apis::AuthorizationError, Signet::AuthorizationError => error
       add :fail, "Reading purchases", describe(error)
       false
+    end
+
+    # With external offers on, the same account reports payments to Google. Ask for a transaction
+    # that cannot exist: "unknown transaction" means the External Transactions API is allowed.
+    def check_external_transactions(service)
+      service.getexternaltransaction_externaltransaction("applications/#{google.package_name}/externalTransactions/tillbell-check")
+      add :ok, "Reporting external transactions", "allowed"
+    rescue Google::Apis::ClientError => error
+      if Tillbell::GooglePlay::INVALID_TOKEN_STATUSES.include?(error.status_code)
+        add :ok, "Reporting external transactions", "allowed (Google answered that the test transaction is unknown, as expected)"
+      else
+        add :fail, "Reporting external transactions", describe(error)
+      end
+    rescue Google::Apis::AuthorizationError => error
+      add :fail, "Reporting external transactions", describe(error)
     end
 
     def check_plan(service, plan)

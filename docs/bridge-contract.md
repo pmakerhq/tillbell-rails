@@ -19,9 +19,9 @@ Messages use the [Hotwire Native bridge](https://native.hotwired.dev/overview/br
 
 - **Component name:** `tillbell`. The native app registers a `BridgeComponent` with this
   name; it coexists with any other component.
-- The page sends `products`, `purchase`, `restore` and `manage`. The native component answers
-  the first three by replying to the same message (`replyTo(event, data)` on Android);
-  `manage` gets no reply.
+- The page sends `products`, `purchase`, `restore`, `manage` and `externalOffer`. The native
+  component answers all of them but `manage` by replying to the same message
+  (`replyTo(event, data)` on Android); `manage` gets no reply.
 - The bridge adds a `metadata` object (`{ "url": ... }`) to every message the page sends.
   Native code only reads it to check where the message comes from (see below).
 - The page only loads the controller when the app's user agent lists the `tillbell`
@@ -39,8 +39,8 @@ Messages use the [Hotwire Native bridge](https://native.hotwired.dev/overview/br
   and never use an e-mail.
 - **Prices come from Google Play** (`ProductDetails`), never from the app or the page.
 - **Pending purchases** must be enabled (`enablePendingPurchases`), as Play requires.
-- **Always reply** to `products`, `purchase` and `restore`, including on errors, so the page
-  never waits forever.
+- **Always reply** to `products`, `purchase`, `restore` and `externalOffer`, including on
+  errors, so the page never waits forever.
 - **Only your pages may buy.** On iOS the app can be configured with the hosts of its pages
   (`TillbellComponent.allowedHosts`). The host of `metadata.url` must then be one of them,
   compared without case: any other message, or one without a readable URL, gets an `error`
@@ -170,6 +170,56 @@ Request ([schema](../contract/manage.request.json)):
 Open `https://play.google.com/store/account/subscriptions?sku=<productId>&package=<packageName>`,
 or the page without parameters when `productId` is `null`.
 
+### `externalOffer`
+
+Google Play's [external offers program](https://support.google.com/googleplay/android-developer/answer/14372887)
+lets an Android app send customers of the European Economic Area to a web checkout instead of
+the Google Play purchase sheet. The page runs the flow in three steps, each one an
+`externalOffer` message with an `action`. The native side uses the billing program API of the
+Play Billing Library (`BillingProgram.EXTERNAL_OFFER`, enabled on its `BillingClient` with
+`enableBillingProgram`).
+
+Request ([schema](../contract/externalOffer.request.json)):
+
+```json
+{ "action": "availability" }
+{ "action": "token" }
+{ "action": "launch", "url": "https://example.com/checkout/cs_test_a1b2c3" }
+```
+
+| `action` | Play Billing call | `ok` reply |
+|---|---|---|
+| `availability` | `isBillingProgramAvailableAsync(EXTERNAL_OFFER)` | the device and the customer's country may use external offers |
+| `token` | `createBillingProgramReportingDetailsAsync(EXTERNAL_OFFER)` | `externalTransactionToken`, the token the server reports the payment with |
+| `launch` | `launchExternalLink` with `LINK_TO_DIGITAL_CONTENT_OFFER` and `LAUNCH_IN_EXTERNAL_BROWSER_OR_APP` | Google showed its information screen and opened `url` |
+
+Reply ([schema](../contract/externalOffer.reply.json)):
+
+```json
+{ "result": "ok", "externalTransactionToken": "..." }
+```
+
+| `result` | When |
+|---|---|
+| `ok` | `OK` |
+| `unavailable` | `BILLING_UNAVAILABLE`, `FEATURE_NOT_SUPPORTED`, or a store without external offers (the App Store) |
+| `canceled` | `USER_CANCELED`: the customer left Google's information screen |
+| `error` | any other code, a malformed request, or `ok` without a token for `token` |
+
+Rules:
+
+- **A fresh token for every checkout.** The page asks for `token` right before it creates the
+  checkout, never caches it, and passes it to the server, which keeps it with the payment and
+  reports the payment to Google with it (see the README, "External offers").
+- **Google opens the link.** `launch` lets Play show its information screen and open `url` in
+  the browser. The native side never opens the URL itself, and the page never falls back to a
+  checkout inside the WebView: that would be steering outside the program.
+- **Only `https` links.** `launch` with any other URL is refused by the schema; reply `error`.
+
+**External offer or in-app purchase.** When `availability` replies `ok`, the page offers the
+web checkout and hides the Google Play purchase buttons: the external offer wins. Customers for
+whom it replies anything else, and every App Store customer, keep the in-app purchase.
+
 ## On the App Store
 
 tillbell-ios implements the same messages with StoreKit 2:
@@ -186,6 +236,7 @@ tillbell-ios implements the same messages with StoreKit 2:
 - A purchase waiting for approval (Ask to Buy) replies `pending` without `purchaseToken`.
 - `restore` lists `Transaction.currentEntitlements`, without family-shared ones.
 - `manage` opens the App Store subscription management sheet.
+- `externalOffer` replies `unavailable`: the App Store has no external offers program.
 
 ## After the purchase: page to server
 

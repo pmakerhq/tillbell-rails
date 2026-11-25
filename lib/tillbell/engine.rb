@@ -19,6 +19,23 @@ module Tillbell
       Pay::Webhooks.delegator.subscribe "app_store", ->(event) { Tillbell::AppStore.handle_notification(event) }
     end
 
+    # Google Play external offers (opt-in, +config.google.external_offers+): Stripe payments and
+    # refunds are reported to Google in a job. Only invoices of a subscription that carries a
+    # Google Play token are enqueued; an invoice without +parent+ (a webhook endpoint on a Stripe
+    # API older than 2025-03-31) cannot be filtered here, so the job reads it again and decides.
+    initializer "tillbell.external_offers" do
+      Pay::Webhooks.delegator.subscribe "stripe.invoice.paid", ->(event) {
+        invoice = event.data.object
+        next unless Tillbell.google.external_offers
+        next if invoice.try(:parent) && Tillbell::StripeExternalOffers.token(invoice).nil?
+
+        Tillbell::StripeExternalTransactionJob.perform_later("invoice", invoice.id)
+      }
+      Pay::Webhooks.delegator.subscribe "stripe.charge.refunded", ->(event) {
+        Tillbell::StripeExternalTransactionJob.perform_later("refund", event.data.object.id) if Tillbell.google.external_offers
+      }
+    end
+
     # Pay defines +stripe?+, +paddle_billing?+ and the matching scopes for its own
     # processors only; this adds the same pair for Google Play and the App Store.
     initializer "tillbell.processor_helpers" do

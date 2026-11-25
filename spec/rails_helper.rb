@@ -2,6 +2,9 @@ ENV["RAILS_ENV"] = "test"
 
 require_relative "dummy/config/environment"
 require "rspec/rails"
+# Loaded after the app boots, so Pay does not subscribe its own Stripe webhook handlers, which
+# would call Stripe: the specs build Stripe objects for the external offers integration only.
+require "stripe"
 
 ActiveRecord::Schema.verbose = false
 load Rails.root.join("db/schema.rb")

@@ -6,6 +6,29 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- Google Play external offers (EEA), opt-in with `config.google.external_offers = true`: the
+  Stripe payments of customers an Android app sent to a web checkout are reported to Google
+  with the External Transactions API, as the program requires within 24 hours. The first paid
+  invoice is reported with the token from Google Play (kept in the subscription metadata under
+  `Tillbell::StripeExternalOffers::TOKEN_KEY`), each renewal is linked to it and each refund is
+  reported as a full or partial refund. Negative invoices are skipped, renewals whose first
+  payment was never recorded emit `external_transaction_orphaned`, and refunds that arrive
+  before their payment is reported are retried. See the README, "External offers (EEA)".
+- `Tillbell::ExternalTransaction`, in a new `tillbell_external_transactions` table
+  (`bin/rails tillbell:install:migrations db:migrate`), keeps what was reported.
+  `Tillbell::ExternalTransactionsJob`, to run hourly, reports again what Google could not take
+  and emits `external_transaction_overdue` for a payment still unreported after 20 hours.
+  `external_transaction_failed` fires for a Stripe invoice or refund still unreported after
+  24 hours of retries.
+- `Tillbell::GooglePlay::ExternalTransactions.report` and `.refund`, for payments that do not
+  come from Stripe.
+- `tillbell:check ONLINE=1` checks that the service account may report external transactions
+  when external offers are on.
+- The `externalOffer` bridge message (`availability`, `token`, `launch`), in
+  `docs/bridge-contract.md` and `contract/`.
+
 ## [0.8.1] - 2026-11-25
 
 ### Fixed

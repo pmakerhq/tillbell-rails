@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_10_29_211258) do
+ActiveRecord::Schema[8.0].define(version: 2026_11_25_000000) do
   create_table "pay_charges", force: :cascade do |t|
     t.bigint "customer_id", null: false
     t.bigint "subscription_id"
@@ -108,6 +108,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_29_211258) do
     t.json "event"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "tillbell_external_transactions", force: :cascade do |t|
+    t.string "stripe_invoice_id", null: false
+    t.string "stripe_subscription_id", null: false
+    t.string "external_transaction_id", null: false
+    t.string "initial_external_transaction_id"
+    t.string "external_transaction_token"
+    t.string "link_type", null: false
+    t.string "currency", null: false
+    t.bigint "pre_tax_micros", null: false
+    t.bigint "tax_micros", null: false
+    t.string "region_code", null: false
+    t.datetime "transaction_time", null: false
+    t.datetime "reported_at"
+    t.text "last_error"
+    t.bigint "refunded_micros", default: 0, null: false
+    t.datetime "overdue_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["external_transaction_id"], name: "idx_on_external_transaction_id_5f4d79cbea", unique: true
+    t.index ["reported_at", "created_at"], name: "index_tillbell_external_transactions_unreported"
+    t.index ["stripe_invoice_id"], name: "index_tillbell_external_transactions_on_stripe_invoice_id", unique: true
+    t.index ["stripe_subscription_id"], name: "index_tillbell_external_transactions_on_stripe_subscription_id"
   end
 
   create_table "users", force: :cascade do |t|

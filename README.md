@@ -5,7 +5,7 @@
 
 **Self-hosted in-app subscriptions for Rails + Hotwire Native apps, built on [Pay](https://github.com/pay-rails/pay).**
 
-Your Android app sells subscriptions through Google Play, your iOS app through the App Store. Your Rails app verifies them, acknowledges them and keeps them in sync. No third-party service sits between the store and your server, and no extra table is added: store subscriptions are regular `Pay::Subscription` records, right next to your Stripe ones.
+Your Android app sells subscriptions through Google Play, your iOS app through the App Store. Your Rails app verifies them, acknowledges them and keeps them in sync. No third-party service sits between the store and your server, and no extra table is added: store subscriptions are regular `Pay::Subscription` records, right next to your Stripe ones. Android apps of the EEA can also send customers to your Stripe checkout instead ([external offers](#external-offers-eea)): Tillbell reports those payments to Google.
 
 ```ruby
 user.pay_subscriptions.active            # Stripe and Google Play together
@@ -28,6 +28,7 @@ subscription.active?                     # same rules as for Stripe
 - [The paywall](#the-paywall)
 - [Subscriptions and statuses](#subscriptions-and-statuses)
 - [Events](#events)
+- [External offers (EEA)](#external-offers-eea)
 - [Google Play setup](#google-play-setup)
 - [App Store setup](#app-store-setup)
 - [Security](#security)
@@ -413,6 +414,9 @@ Tillbell.configure do |config|
   config.on(:subscription_expired)  { |subscription| }
   config.on(:subscription_revoked)  { |subscription| }  # refunded or charged back
   config.on(:purchase_rejected)     { |details| }       # { owner:, purchase_token: } posted by another account
+  config.on(:external_transaction_overdue)  { |transaction| }  # an external offers payment still unreported after 20 hours
+  config.on(:external_transaction_orphaned) { |details| }      # { stripe_invoice_id:, stripe_subscription_id: } a renewal that cannot be reported
+  config.on(:external_transaction_failed)   { |details| }      # { kind:, id:, error: } a Stripe invoice or refund still unreported after 24 hours of retries
 end
 ```
 
@@ -430,6 +434,84 @@ end
 ```
 
 Events go through Pay's webhook delegator, so `Pay::Webhooks.delegator.subscribe "tillbell.subscription_created", MyHandler.new` works too. An event fires once per actual change, after the subscription is saved. An error raised in a callback is reported to `Rails.error` and does not undo the change.
+
+## External offers (EEA)
+
+In the European Economic Area, Google Play's [external offers program](https://support.google.com/googleplay/android-developer/answer/14372887) lets your Android app send customers to your own web checkout (link-out, or "steering") instead of the Google Play purchase sheet. In exchange, Google must hear about every payment made that way within 24 hours: the first one with a token from Google Play, each renewal, and each refund. Tillbell does that reporting for Stripe subscriptions, with the service account it already uses.
+
+It is opt-in. To turn it on:
+
+1. Enroll the app in the program in the Play Console, and use a version of [tillbell-android](https://github.com/pmakerhq/tillbell-android) that answers the `externalOffer` bridge message.
+2. Add Tillbell's table, then turn the reporting on:
+
+   ```sh
+   bin/rails tillbell:install:migrations db:migrate
+   ```
+
+   ```ruby
+   config.google.external_offers = true
+   ```
+
+3. Run `Tillbell::ExternalTransactionsJob` every hour, for example in `config/recurring.yml`. It reports again what Google could not take (an outage, a key fixed after it expired) and emits `external_transaction_overdue`.
+4. Run `bin/rails tillbell:check ONLINE=1`: it checks that the service account may report external transactions.
+
+**In the page.** Ask the native app whether the offer is available, then for a fresh token right before each checkout, then let Google Play show its information screen and open the checkout. Each step is an `externalOffer` message to the `tillbell` component ([bridge contract](docs/bridge-contract.md#externaloffer)):
+
+```js
+import { BridgeComponent } from "@hotwired/hotwire-native-bridge"
+
+export default class extends BridgeComponent {
+  static component = "tillbell"
+
+  connect() {
+    super.connect()
+    this.send("externalOffer", { action: "availability" }, ({ data }) => {
+      this.element.classList.toggle("external-offer", data.result === "ok")
+    })
+  }
+
+  checkout() {
+    this.send("externalOffer", { action: "token" }, async ({ data }) => {
+      if (data.result !== "ok") return
+      const { url } = await post("/checkouts", { token: data.externalTransactionToken }) // your endpoint
+      this.send("externalOffer", { action: "launch", url }, () => {})
+    })
+  }
+}
+```
+
+**External offer or in-app purchase.** When `availability` answers `ok`, show the web checkout and hide the paywall's Google Play buttons: the external offer wins. Everyone else, App Store customers included, keeps the in-app purchase. Never open the checkout inside the WebView: only Google Play's `launch` may take the customer out.
+
+**On the server.** Put the token in the metadata of the subscription the Checkout Session creates. Without a billing address on the invoice, also give the customer's country:
+
+```ruby
+Stripe::Checkout::Session.create(
+  mode: "subscription", customer: user.payment_processor.processor_id, line_items: [ ... ], success_url: ..., cancel_url: ...,
+  subscription_data: { metadata: {
+    Tillbell::StripeExternalOffers::TOKEN_KEY => params.require(:token),
+    Tillbell::StripeExternalOffers::REGION_KEY => user.country_code  # optional when Checkout collects the address
+  } }
+)
+```
+
+From there, Pay's `invoice.paid` and `charge.refunded` webhooks do the rest, in a background job (`Tillbell::StripeExternalTransactionJob`):
+
+- the first paid invoice is reported with the token, and each renewal is linked to it;
+- a negative invoice (the credit of a plan change) is not a sale and is not reported;
+- a renewal of a subscription whose first payment was never recorded (older than the integration) is not reported: `external_transaction_orphaned` fires instead, since Google cannot link it;
+- a refund is reported as the amount refunded since the last one: the first full refund as a full refund, any other as a partial refund of its pre-tax share; a refund that arrives before its payment is reported is retried.
+
+A free trial starts with a zero invoice: it is the first transaction, reported with the token at zero, and the first paid invoice is its first renewal.
+
+Each payment is a `Tillbell::ExternalTransaction` row, unique per invoice, whose external transaction id (the Stripe invoice id) is fixed before Google is called: a retry sends the same id, and Google's "already received" counts as success. `Tillbell::ExternalTransaction.unreported` and `.overdue` are there for an admin page or an alert:
+
+```ruby
+Tillbell.on(:external_transaction_overdue) { |transaction| notify("Unreported Google Play payment #{transaction.stripe_invoice_id}: #{transaction.last_error}") }
+Tillbell.on(:external_transaction_orphaned) { |details| notify("Renewal #{details[:stripe_invoice_id]} cannot be reported") }
+Tillbell.on(:external_transaction_failed) { |details| notify("Stripe #{details[:kind]} #{details[:id]} not reported: #{details[:error].message}") }
+```
+
+Without Stripe, or for another kind of payment, call the API yourself: `Tillbell::GooglePlay::ExternalTransactions.report(...)` and `.refund(...)` take the amounts, the tax region and the link type as arguments and guess nothing.
 
 ## Google Play setup
 
