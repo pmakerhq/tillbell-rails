@@ -18,7 +18,8 @@ module Tillbell
     TOKEN_KEY = "play_external_transaction_token".freeze
 
     # Subscription metadata key holding the customer's two-letter country code, used when the
-    # invoice has no customer address. Set it when Checkout does not collect an address.
+    # invoice has no customer address. Set it when Checkout does not collect an address. A
+    # renewal without either takes the country of the subscription's first payment.
     REGION_KEY = "play_external_transaction_region".freeze
 
     # How the app sends customers out: to an offer of digital content (the subscription).
@@ -97,7 +98,9 @@ module Tillbell
             end
           end
 
-          region = invoice.try(:customer_address).try(:country).presence || subscription_metadata(invoice)[REGION_KEY].presence
+          # A renewal keeps the country of its first payment when Stripe has none.
+          region = invoice.try(:customer_address).try(:country).presence || subscription_metadata(invoice)[REGION_KEY].presence ||
+            initial&.region_code
           raise Error, "Stripe invoice #{invoice.id} has no customer country: set #{REGION_KEY} in the subscription metadata" unless region
 
           pre_tax = invoice.total_excluding_tax.to_i
