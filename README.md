@@ -482,7 +482,7 @@ export default class extends BridgeComponent {
 
 **External offer or in-app purchase.** When `availability` answers `ok`, show the web checkout and hide the paywall's Google Play buttons: the external offer wins. Everyone else, App Store customers included, keeps the in-app purchase. Never open the checkout inside the WebView: only Google Play's `launch` may take the customer out.
 
-**On the server.** Put the token in the metadata of the subscription the Checkout Session creates. Without a billing address on the invoice, also give the customer's country:
+**On the server.** Put the token in the metadata of the subscription the Checkout Session creates. Without a billing address on the invoice, also give the customer's country (a renewal without either keeps the country of the first payment):
 
 ```ruby
 Stripe::Checkout::Session.create(

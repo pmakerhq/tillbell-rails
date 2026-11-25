@@ -74,6 +74,14 @@ RSpec.describe Tillbell::StripeExternalOffers do
       expect(transaction.region_code).to eq("DE")
     end
 
+    it "gives a renewal without a country the country of its first payment" do
+      described_class.report_invoice(invoice)
+
+      renewal = described_class.report_invoice(invoice(id: "in_2", billing_reason: "subscription_cycle", country: nil))
+
+      expect(renewal.region_code).to eq("FR")
+    end
+
     it "raises without a country, so the job retries once it is fixed" do
       expect { described_class.report_invoice(invoice(country: nil)) }.to raise_error(Tillbell::Error, /no customer country/)
     end
