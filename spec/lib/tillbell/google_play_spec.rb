@@ -39,6 +39,26 @@ RSpec.describe Tillbell::GooglePlay do
     end
   end
 
+  describe ".acknowledge" do
+    let(:service) { instance_double(Google::Apis::AndroidpublisherV3::AndroidPublisherService) }
+
+    before { allow(described_class).to receive(:service).and_return(service) }
+
+    it "syncs the purchase again instead of failing on a concurrentUpdate" do
+      error = Google::Apis::ClientError.new("concurrentUpdate: already being updated", status_code: 409)
+      allow(service).to receive(:acknowledge_purchase_subscription).and_raise(error)
+
+      expect { described_class.acknowledge("premium", "token") }.to have_enqueued_job(Tillbell::SyncJob).with("token")
+    end
+
+    it "raises any other client error" do
+      error = Google::Apis::ClientError.new("forbidden", status_code: 403)
+      allow(service).to receive(:acknowledge_purchase_subscription).and_raise(error)
+
+      expect { described_class.acknowledge("premium", "token") }.to raise_error(Google::Apis::ClientError)
+    end
+  end
+
   describe ".package_name" do
     it "raises a clear error when it is not configured" do
       allow(Tillbell.google).to receive(:package_name).and_return(nil)

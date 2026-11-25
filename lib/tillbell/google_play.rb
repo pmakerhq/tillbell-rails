@@ -48,9 +48,16 @@ module Tillbell
       end
 
       # Acknowledges a subscription purchase. Google refunds purchases that are not
-      # acknowledged within three days.
+      # acknowledged within three days. Google answers 409 (+concurrentUpdate+) when the purchase
+      # is already being updated, typically by another acknowledge of the same purchase. Nothing
+      # proves that call succeeds, so the purchase is synced again shortly: the sync only
+      # acknowledges a purchase that is still pending.
       def acknowledge(product_id, purchase_token)
         service.acknowledge_purchase_subscription(package_name, product_id, purchase_token)
+      rescue Google::Apis::ClientError => error
+        raise unless error.status_code == 409
+
+        SyncJob.set(wait: 1.minute).perform_later(purchase_token)
       end
 
       # Stops the renewal of a subscription. The customer keeps access until the end of
