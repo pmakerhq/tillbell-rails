@@ -11,6 +11,7 @@ gem "puma"
 
 gem "rspec-rails"
 gem "json_schemer"
-# Real Stripe objects for the specs of the external offers integration (Pay 12 needs stripe 20).
-gem "stripe", "~> 20"
+# Real Stripe objects for the specs of the external offers integration. Unpinned: each Pay
+# release requires the latest major of the stripe gem, and the bundle must follow it.
+gem "stripe"
 gem "rubocop-rails-omakase", require: false
