@@ -21,12 +21,14 @@ class CreateTillbellExternalTransactions < ActiveRecord::Migration[8.0]
       t.datetime :transaction_time, null: false
       t.datetime :reported_at
       t.text :last_error
+      # Refunded so far: gross, as the payment processor counts it, and the pre-tax part reported.
       t.bigint :refunded_micros, null: false, default: 0
+      t.bigint :refunded_pre_tax_micros, null: false, default: 0
       # When the external_transaction_overdue event was emitted, so it is emitted once.
       t.datetime :overdue_at
       t.timestamps
 
-      t.index %i[reported_at created_at], name: "index_tillbell_external_transactions_unreported"
+      t.index %i[reported_at transaction_time], name: "index_tillbell_external_transactions_unreported"
     end
   end
 end

@@ -52,14 +52,17 @@ module Tillbell
 
       # Reports the refunds of +charge+ (a +Stripe::Charge+) not reported yet. Raises
       # Tillbell::ExternalTransaction::NotReported when the payment is not reported yet, so the
-      # job retries rather than losing the refund.
+      # job retries rather than losing the refund. A refund of an orphaned renewal (see
+      # +report_invoice+) is not reported either: Google never had the payment.
       def refund_charge(charge)
         invoice_id = invoice_id(charge)
         return unless invoice_id
 
         transaction = ExternalTransaction.find_by(stripe_invoice_id: invoice_id)
         if transaction.nil?
-          return unless token(::Stripe::Invoice.retrieve(invoice_id))
+          invoice = ::Stripe::Invoice.retrieve(invoice_id)
+          return unless token(invoice)
+          return if orphaned?(invoice)
 
           raise ExternalTransaction::NotReported, "Stripe invoice #{invoice_id} is not recorded yet"
         end
@@ -87,7 +90,7 @@ module Tillbell
 
           subscription_id = invoice.parent.subscription_details.subscription
           unless first
-            initial = ExternalTransaction.where(stripe_subscription_id: subscription_id, initial_external_transaction_id: nil).first
+            initial = initial_transaction(subscription_id)
             if initial.nil?
               Tillbell.instrument(:external_transaction_orphaned, { stripe_invoice_id: invoice.id, stripe_subscription_id: subscription_id })
               return
@@ -112,6 +115,15 @@ module Tillbell
               transaction_time: Time.at(invoice.status_transitions.paid_at || invoice.created).utc
             )
           end
+        end
+
+        def initial_transaction(subscription_id)
+          ExternalTransaction.where(stripe_subscription_id: subscription_id, initial_external_transaction_id: nil).first
+        end
+
+        # A renewal whose subscription has no recorded first payment, which is never reported.
+        def orphaned?(invoice)
+          invoice.billing_reason != "subscription_create" && initial_transaction(invoice.parent.subscription_details.subscription).nil?
         end
 
         # Stripe charges no longer name their invoice (API 2025-03-31 "basil"): the invoice is

@@ -62,6 +62,25 @@ RSpec.describe Tillbell::ExternalTransaction do
       transaction.refund!(12_000_000, full: true)
     end
 
+    it "counts a refused partial refund as done when Google's amount already went down by it" do
+      transaction = create_transaction(reported_at: Time.current, refunded_micros: 3_000_000, refunded_pre_tax_micros: 2_500_000)
+      allow(api).to receive(:refund).and_raise(google_error(Google::Apis::ClientError, 400))
+      allow(api).to receive(:current_pre_tax_micros).with("in_1").and_return(5_000_000)
+
+      transaction.refund!(6_000_000, full: false)
+
+      expect(transaction.reload).to have_attributes(refunded_micros: 6_000_000, refunded_pre_tax_micros: 5_000_000)
+    end
+
+    it "raises a refused partial refund that Google did not apply" do
+      transaction = create_transaction(reported_at: Time.current)
+      allow(api).to receive(:refund).and_raise(google_error(Google::Apis::ClientError, 400))
+      allow(api).to receive(:current_pre_tax_micros).and_return(10_000_000)
+
+      expect { transaction.refund!(3_000_000, full: false) }.to raise_error(Google::Apis::ClientError)
+      expect(transaction.reload.refunded_micros).to eq(0)
+    end
+
     it "reports nothing when nothing new was refunded (a webhook delivered twice)" do
       transaction = create_transaction(reported_at: Time.current, refunded_micros: 3_000_000)
       expect(api).not_to receive(:refund)
@@ -70,10 +89,10 @@ RSpec.describe Tillbell::ExternalTransaction do
     end
   end
 
-  it "finds the payments still unreported close to the 24-hour deadline" do
-    late = create_transaction(created_at: 21.hours.ago)
-    create_transaction(stripe_invoice_id: "in_2", external_transaction_id: "in_2", created_at: 2.hours.ago)
-    create_transaction(stripe_invoice_id: "in_3", external_transaction_id: "in_3", created_at: 22.hours.ago, reported_at: 21.hours.ago)
+  it "finds the payments still unreported close to the 24-hour deadline, counted from the payment" do
+    late = create_transaction(transaction_time: 21.hours.ago)
+    create_transaction(stripe_invoice_id: "in_2", external_transaction_id: "in_2", transaction_time: 2.hours.ago, created_at: 30.hours.ago)
+    create_transaction(stripe_invoice_id: "in_3", external_transaction_id: "in_3", transaction_time: 22.hours.ago, reported_at: 21.hours.ago)
 
     expect(described_class.overdue).to contain_exactly(late)
   end

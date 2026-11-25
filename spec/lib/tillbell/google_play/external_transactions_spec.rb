@@ -87,6 +87,14 @@ RSpec.describe Tillbell::GooglePlay::ExternalTransactions do
       expect { described_class.refund(external_transaction_id: "in_1", refund_time: paid_at) }.to raise_error(Google::Apis::ClientError)
     end
 
+    it "reads the current pre-tax amount of a transaction" do
+      allow(service).to receive(:getexternaltransaction_externaltransaction).with("applications/com.example.app/externalTransactions/in_1").and_return(
+        Google::Apis::AndroidpublisherV3::ExternalTransaction.new(current_pre_tax_amount: Google::Apis::AndroidpublisherV3::Price.new(price_micros: "7500000"))
+      )
+
+      expect(described_class.current_pre_tax_micros("in_1")).to eq(7_500_000)
+    end
+
     it "needs a currency and a refund id for a partial refund" do
       expect { described_class.refund(external_transaction_id: "in_1", refund_time: paid_at, pre_tax_micros: 1) }.to raise_error(ArgumentError)
     end

@@ -11,6 +11,7 @@ module Tillbell
     # service account of +config.google.service_account_json+ and +config.google.package_name+.
     # Tillbell::ExternalTransaction keeps what was reported and calls it.
     module ExternalTransactions
+      # The request and response classes of the Google client.
       Types = Google::Apis::AndroidpublisherV3
 
       class << self
@@ -67,6 +68,13 @@ module Tillbell
           # A full refund has no id of its own: when a retry follows a success whose answer was
           # lost, Google refuses it. The transaction says whether the refund is already done.
           raise if pre_tax_micros || GooglePlay.service.getexternaltransaction_externaltransaction(name).transaction_state != "TRANSACTION_REFUNDED"
+        end
+
+        # The pre-tax amount of a reported payment once its refunds are deducted, in micros, as
+        # Google has it (+externaltransactions.getexternaltransaction+).
+        def current_pre_tax_micros(external_transaction_id)
+          GooglePlay.service.getexternaltransaction_externaltransaction("#{parent}/externalTransactions/#{external_transaction_id}")
+                    .current_pre_tax_amount.price_micros.to_i
         end
 
         private

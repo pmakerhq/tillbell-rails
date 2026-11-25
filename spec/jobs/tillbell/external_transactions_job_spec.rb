@@ -26,7 +26,7 @@ RSpec.describe Tillbell::ExternalTransactionsJob do
   end
 
   it "emits external_transaction_overdue once for a payment close to the deadline" do
-    late = create_transaction("in_1", created_at: 21.hours.ago)
+    late = create_transaction("in_1", transaction_time: 21.hours.ago)
     allow(api).to receive(:report).and_raise(google_error(Google::Apis::ServerError, 503))
     allow(Rails.error).to receive(:report)
     overdue = []

@@ -110,6 +110,12 @@ RSpec.describe Tillbell::StripeExternalOffers do
       expect { described_class.refund_charge(charge(amount_refunded: 1200, refunded: true)) }.to raise_error(Tillbell::ExternalTransaction::NotReported)
     end
 
+    it "ignores refunds of an orphaned renewal, which Google never had" do
+      allow(Stripe::Invoice).to receive(:retrieve).with("in_1").and_return(invoice(billing_reason: "subscription_cycle"))
+
+      expect(described_class.refund_charge(charge(amount_refunded: 1200, refunded: true))).to be_nil
+    end
+
     it "ignores refunds of payments that did not come from an external offer" do
       allow(Stripe::Invoice).to receive(:retrieve).with("in_1").and_return(invoice(metadata: {}))
 

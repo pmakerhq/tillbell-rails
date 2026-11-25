@@ -17,8 +17,11 @@ module Tillbell
     # refund is retried once the payment is reported instead of being lost.
     class NotReported < Error; end
 
+    # Payments Google does not have yet.
     scope :unreported, -> { where(reported_at: nil) }
-    scope :overdue, -> { unreported.where(created_at: ..OVERDUE_AFTER.ago) }
+    # Unreported payments made more than OVERDUE_AFTER ago. The deadline runs from the payment,
+    # not from the row, which can be created late (an invoice first missing its country).
+    scope :overdue, -> { unreported.where(transaction_time: ..OVERDUE_AFTER.ago) }
 
     # True for the first payment of a subscription, which Google links to the app's token.
     def initial? = initial_external_transaction_id.blank?
@@ -61,15 +64,25 @@ module Tillbell
 
         if full && refunded_micros.zero?
           GooglePlay::ExternalTransactions.refund(external_transaction_id: external_transaction_id, refund_time: Time.current)
+          update!(refunded_micros: total_refunded_micros, refunded_pre_tax_micros: pre_tax_micros)
         else
-          GooglePlay::ExternalTransactions.refund(
-            external_transaction_id: external_transaction_id, refund_time: Time.current, currency: currency,
-            pre_tax_micros: pre_tax_share(delta),
-            # Deterministic, so a retry of the same refund is recognized by Google.
-            refund_id: "#{external_transaction_id}-refund-#{total_refunded_micros}"
-          )
+          share = pre_tax_share(delta)
+          begin
+            GooglePlay::ExternalTransactions.refund(
+              external_transaction_id: external_transaction_id, refund_time: Time.current, currency: currency,
+              pre_tax_micros: share,
+              # Deterministic, so a retry of the same refund is recognized by Google.
+              refund_id: "#{external_transaction_id}-refund-#{total_refunded_micros}"
+            )
+          rescue Google::Apis::ClientError
+            # Google may refuse a refund id it already has rather than answer 409, typically on a
+            # retry after a success whose answer was lost. The refund is done when the payment's
+            # current pre-tax amount already went down by it.
+            remaining = pre_tax_micros - refunded_pre_tax_micros - share
+            raise unless GooglePlay::ExternalTransactions.current_pre_tax_micros(external_transaction_id) <= remaining
+          end
+          update!(refunded_micros: total_refunded_micros, refunded_pre_tax_micros: refunded_pre_tax_micros + share)
         end
-        update!(refunded_micros: total_refunded_micros)
       end
     end
 

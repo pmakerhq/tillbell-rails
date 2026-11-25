@@ -125,11 +125,12 @@ ActiveRecord::Schema[8.0].define(version: 2026_11_25_000000) do
     t.datetime "reported_at"
     t.text "last_error"
     t.bigint "refunded_micros", default: 0, null: false
+    t.bigint "refunded_pre_tax_micros", default: 0, null: false
     t.datetime "overdue_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["external_transaction_id"], name: "idx_on_external_transaction_id_5f4d79cbea", unique: true
-    t.index ["reported_at", "created_at"], name: "index_tillbell_external_transactions_unreported"
+    t.index ["reported_at", "transaction_time"], name: "index_tillbell_external_transactions_unreported"
     t.index ["stripe_invoice_id"], name: "index_tillbell_external_transactions_on_stripe_invoice_id", unique: true
     t.index ["stripe_subscription_id"], name: "index_tillbell_external_transactions_on_stripe_subscription_id"
   end
